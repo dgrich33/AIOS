@@ -36,6 +36,23 @@ Observacao operacional: o repositorio esta publico. Por isso, estes itens nunca 
 
 O `.gitignore` e o `.gitattributes` devem continuar protegendo esse limite.
 
+## Inventario de plugins baixados no Codex
+
+Plugins encontrados no cache local do Codex:
+
+| Plugin | Estado nesta sessao | Uso no AIOS |
+|---|---|---|
+| `browser-use` | ativo como Browser | Validacao visual, DOM, console e screenshots locais |
+| `chrome` | baixado no cache, nao exposto como ferramenta ativa nesta sessao | Automacao Chrome quando o app Codex habilitar o plugin |
+| `build-web-apps` | ativo | UI premium, React, Vite, testes de frontend |
+| `coderabbit` | ativo | Revisao assistida de PR/diff |
+| `codex-security` | ativo | Security scan, threat model, validation e attack-path analysis |
+| `figma` | ativo | Design system e implementacao visual quando houver Figma/design |
+| `github` | ativo | Repo, PR, issues, push, branch e checks |
+| `superpowers` | ativo | Planejamento, debugging, TDD, verificacao e entrega disciplinada |
+
+Regra operacional: quando uma tarefa combinar com um plugin ativo, usar a skill correspondente antes de implementar. Se um plugin estiver baixado mas nao exposto na sessao, registrar o bloqueio e usar o melhor fallback seguro.
+
 ## Skills uteis por tipo de trabalho
 
 ### 1. Superpowers
