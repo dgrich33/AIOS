@@ -47,6 +47,7 @@ import type {
   RuntimeBindingStatus,
   RuntimeModelDiscovery,
   RuntimeBrokerProvider,
+  RuntimeBrokerExplanation,
   RuntimeBrokerStatus,
   RuntimeStatus,
   SandboxDataProfile,
@@ -146,6 +147,7 @@ type PanelState = {
   runtimeInvokeResult?: Record<string, unknown>;
   runtimeBrokerProviders: RuntimeBrokerProvider[];
   runtimeBrokerStatus?: RuntimeBrokerStatus;
+  runtimeBrokerExplanation?: RuntimeBrokerExplanation;
   runtimeBrokerInvokeResult?: Record<string, unknown>;
   noCostProviders: NoDeveloperCostProvider[];
   noCostRecommendation?: NoDeveloperCostRecommendation;
@@ -320,6 +322,7 @@ export function App() {
         runtimeStatus,
         runtimeBrokerProviders,
         runtimeBrokerStatus,
+        runtimeBrokerExplanation,
         noCostProvidersCatalog,
         noCostRecommendation,
         integrationGuardrails,
@@ -347,6 +350,7 @@ export function App() {
         api.runtimeStatus(),
         api.runtimeBrokerProviders(),
         api.runtimeBrokerStatus(),
+        api.runtimeBrokerExplain(),
         api.noDeveloperCostProviders(),
         api.noDeveloperCostRecommendation(),
         api.integrationGuardrails(),
@@ -376,6 +380,7 @@ export function App() {
         runtimeStatus,
         runtimeBrokerProviders: runtimeBrokerProviders.providers,
         runtimeBrokerStatus,
+        runtimeBrokerExplanation,
         noCostProviders: noCostProvidersCatalog.providers,
         noCostRecommendation,
         integrationGuardrails,
@@ -621,14 +626,15 @@ export function App() {
 
   async function loadRuntimeBrokerStatus() {
     const result = await runAction('runtime-broker-status', () =>
-      Promise.all([api.runtimeBrokerProviders(), api.runtimeBrokerStatus()]),
+      Promise.all([api.runtimeBrokerProviders(), api.runtimeBrokerStatus(), api.runtimeBrokerExplain()]),
     );
-    const [providerCatalog, runtimeBrokerStatus] = result ?? [];
-    if (!providerCatalog || !runtimeBrokerStatus) return;
+    const [providerCatalog, runtimeBrokerStatus, runtimeBrokerExplanation] = result ?? [];
+    if (!providerCatalog || !runtimeBrokerStatus || !runtimeBrokerExplanation) return;
     setState((current) => ({
       ...current,
       runtimeBrokerProviders: providerCatalog.providers,
       runtimeBrokerStatus,
+      runtimeBrokerExplanation,
       runtimeBrokerInvokeResult: runtimeBrokerStatus,
     }));
   }
@@ -1178,19 +1184,26 @@ export function App() {
           <article className="detail-panel">
             <div className="panel-heading">
               <div>
-                <h2>Runtime Broker RC12</h2>
+                <h2>Runtime Broker RC21</h2>
                 <p>{state.runtimeBrokerStatus?.intelligenceSystem?.name ?? 'AIOS Cognitive Runtime Mesh'}</p>
               </div>
               <span className="status-pill">{state.runtimeBrokerStatus?.recommendedProvider || 'auto'}</span>
             </div>
             <dl className="detail-list">
-              <dt>Modelo inicial</dt>
+              <dt>Provider explainability</dt>
+              <dd>{state.runtimeBrokerExplanation?.claimBoundary?.message ?? state.runtimeBrokerStatus?.selection?.explanation ?? 'aguardando status do broker'}</dd>
+              <dt>Modelo fallback</dt>
               <dd>{String(state.runtimeBrokerStatus?.providers?.ollama_local_cloud?.defaultModel ?? 'deepseek-v4-pro:cloud')}</dd>
               <dt>Chave OpenAI dev</dt>
               <dd>{state.runtimeBrokerStatus?.providers?.ollama_local_cloud?.requiresDeveloperApiKey ? 'necessaria' : 'nao exigida'}</dd>
-              <dt>Medidor visivel</dt>
-              <dd>{state.runtimeBrokerStatus?.showsTokenCounter ? 'ativo' : 'nenhum'}</dd>
+              <dt>Live enterprise</dt>
+              <dd>{state.runtimeBrokerStatus?.canInvokeLiveRuntime ? state.runtimeBrokerStatus.liveRuntimeProvider : 'bloqueado sem binding oficial'}</dd>
             </dl>
+            <div className="module-grid broker-provider-grid" aria-label="Runtime Broker provider order">
+              {(state.runtimeBrokerStatus?.providerOrder ?? state.runtimeBrokerProviders.map((provider) => provider.providerId)).map((providerId) => (
+                <span key={providerId}>{providerId}</span>
+              ))}
+            </div>
             <div className="action-row">
               <button onClick={loadRuntimeBrokerStatus} disabled={Boolean(actionLoading)}>
                 <Workflow size={17} />
@@ -1202,7 +1215,7 @@ export function App() {
               </button>
             </div>
             <p className="muted">
-              Roteia OpenAI oficial, Ollama Local/Cloud e user-pays sem apagar fluxos antigos.
+              Roteia provider oficial, Codex delegado, AIOS Cloud, self-hosted, demo e fallback sem falso claim de runtime vivo.
             </p>
           </article>
 

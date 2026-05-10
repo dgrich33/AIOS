@@ -31,7 +31,10 @@ test('logs in and uses Codex Workbench session controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Verificar Binding Runtime/i })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Modelos Codex' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Runtime Gateway' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Runtime Broker RC12' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Runtime Broker RC21' })).toBeVisible();
+  await expect(page.getByText('Provider explainability').first()).toBeVisible();
+  await expect(page.getByText('official_codex_runtime').first()).toBeVisible();
+  await expect(page.getByText('controlled_simulator').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No Developer Cost' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Puter User-Pays/i })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Secure Runtime Bridge' })).toBeVisible();

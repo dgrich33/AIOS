@@ -26,17 +26,19 @@ Evidencia: `docs/RC20_PRODUCT_SHELL.md`.
 
 Entregas:
 
-- [ ] Normalizar providers com capabilities.
-- [ ] Separar `official_codex_runtime`, `codex_delegated`, `aios_cloud_runtime`, `openai_api_authorized`, `puter_user_pays_browser`, `github_models_demo`, `ollama_local_cloud`, `vllm_self_hosted`, `tgi_self_hosted`, `llamafile_server` e `controlled_simulator`.
-- [ ] Impedir `canInvokeLiveRuntime: true` fora de official binding ativo.
-- [ ] Registrar `aios.runtime_broker.provider_selected`.
-- [ ] Adicionar endpoint de explainability do provider escolhido.
+- [x] Normalizar providers com capabilities.
+- [x] Separar `official_codex_runtime`, `codex_delegated`, `aios_cloud_runtime`, `openai_api_authorized`, `puter_user_pays_browser`, `github_models_demo`, `ollama_local_cloud`, `vllm_self_hosted`, `tgi_self_hosted`, `llamafile_server` e `controlled_simulator`.
+- [x] Impedir `canInvokeLiveRuntime: true` fora de official binding ativo.
+- [x] Registrar `aios.runtime_broker.provider_selected`.
+- [x] Adicionar endpoint de explainability do provider escolhido.
 
 Validacoes:
 
-- [ ] Teste unitario por provider.
-- [ ] Teste de bloqueio para falso runtime live.
-- [ ] `runtime-binding-status.ps1 -WriteReport` continua correto.
+- [x] Teste unitario por provider.
+- [x] Teste de bloqueio para falso runtime live.
+- [x] `runtime-binding-status.ps1 -WriteReport` continua correto.
+
+Evidencia: `docs/RC21_RUNTIME_BROKER_2.md`.
 
 ## RC22 - Agent Room
 

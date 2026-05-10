@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import json
+import os
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -950,30 +951,83 @@ def openai_model_discovery_security_state() -> dict:
     }
 
 
+RUNTIME_BROKER_PROVIDER_ORDER = [
+    "official_codex_runtime",
+    "codex_delegated",
+    "aios_cloud_runtime",
+    "openai_api_authorized",
+    "puter_user_pays_browser",
+    "github_models_demo",
+    "ollama_local_cloud",
+    "vllm_self_hosted",
+    "tgi_self_hosted",
+    "llamafile_server",
+    "controlled_simulator",
+]
+
+
 def runtime_broker_provider_catalog() -> list[dict]:
     settings = get_settings()
     return [
         {
-            "providerId": "official_openai_codex",
-            "name": "Official OpenAI Codex Runtime",
+            "providerId": "official_codex_runtime",
+            "name": "Official Codex Runtime",
             "category": "official",
             "defaultModel": settings.openai_model,
             "requiresDeveloperApiKey": True,
             "requiresUserAccount": False,
             "runtimeSurface": "backend_secure_adapter",
-            "status": "enabled_when_secure_environment_ready",
+            "status": "enabled_only_when_runtime_binding_is_active",
             "qualityRole": "premium official Codex model path",
+            "officialRuntime": True,
+            "canClaimLiveRuntime": True,
+            "liveRuntimeGate": "runtime_binding_active",
+            "backendInvokable": True,
         },
         {
-            "providerId": "ollama_local_cloud",
-            "name": "Ollama Local/Cloud",
-            "category": "local_or_user_cloud",
-            "defaultModel": settings.ollama_model,
+            "providerId": "codex_delegated",
+            "name": "Codex Delegated Runtime",
+            "category": "delegated_codex_auth",
+            "defaultModel": "codex_model_picker",
             "requiresDeveloperApiKey": False,
             "requiresUserAccount": True,
-            "runtimeSurface": "localhost_ollama_api",
-            "status": "available_when_ollama_is_running_and_model_is_present_or_cloud_signed_in",
-            "qualityRole": "real runtime fallback for premium coding sessions without OpenAI developer API spend",
+            "runtimeSurface": "codex_app_server_jsonrpc",
+            "status": "available_when_codex_app_server_auth_is_validated",
+            "qualityRole": "Codex UX without storing OpenAI Platform API key in AIOS",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "delegated_auth_ready_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "aios_cloud_runtime",
+            "name": "AIOS Delegated Cloud Runtime",
+            "category": "aios_operated_cloud",
+            "defaultModel": os.getenv("AIOS_CLOUD_RUNTIME_MODEL", "model_policy_selected"),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "aios_cloud_workspace",
+            "status": "available_when_aios_cloud_gateway_is_configured",
+            "qualityRole": "no-key user demo and paid workspace runtime operated by AIOS",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "aios_cloud_gateway_ready_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "openai_api_authorized",
+            "name": "Authorized OpenAI API",
+            "category": "authorized_api",
+            "defaultModel": settings.openai_model,
+            "requiresDeveloperApiKey": True,
+            "requiresUserAccount": False,
+            "runtimeSurface": "responses_or_chat_completions_api",
+            "status": "available_when_platform_project_billing_and_api_key_are_approved",
+            "qualityRole": "approved API route, not internal Codex enterprise binding",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "api_authorized_ready_not_enterprise_binding",
+            "backendInvokable": True,
         },
         {
             "providerId": "puter_user_pays_browser",
@@ -985,22 +1039,137 @@ def runtime_broker_provider_catalog() -> list[dict]:
             "runtimeSurface": "frontend_browser",
             "status": "frontend_only",
             "qualityRole": "user-pays path that keeps provider credentials out of AIOS backend",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "browser_user_pays_not_enterprise_binding",
+            "backendInvokable": False,
         },
         {
-            "providerId": "local_demo_blocked_for_runtime_claims",
-            "name": "Local Demo Adapter",
-            "category": "demo_only",
-            "defaultModel": "LocalQueueCodexAdapter",
+            "providerId": "github_models_demo",
+            "name": "GitHub Models Demo",
+            "category": "demo_provider",
+            "defaultModel": os.getenv("AIOS_GITHUB_MODELS_MODEL", "github_model_policy_selected"),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "github_models_marketplace",
+            "status": "available_when_user_or_aios_github_entitlement_is_configured",
+            "qualityRole": "controlled demo/runtime fallback under explicit GitHub entitlement",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "github_entitlement_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "ollama_local_cloud",
+            "name": "Ollama Local/Cloud",
+            "category": "local_or_user_cloud",
+            "defaultModel": settings.ollama_model,
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "localhost_ollama_api",
+            "status": "available_when_ollama_is_running_and_model_is_present_or_cloud_signed_in",
+            "qualityRole": "real runtime fallback for premium coding sessions without OpenAI developer API spend",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "local_or_cloud_fallback_not_enterprise_binding",
+            "backendInvokable": True,
+        },
+        {
+            "providerId": "vllm_self_hosted",
+            "name": "vLLM Self-Hosted Runtime",
+            "category": "self_hosted",
+            "defaultModel": os.getenv("AIOS_VLLM_MODEL", "qwen2.5-coder-32b-instruct"),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "vllm_openai_compatible_server",
+            "status": "available_when_aios_inference_base_url_uses_vllm",
+            "qualityRole": "self-hosted open-weight runtime under AIOS operations",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "self_hosted_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "tgi_self_hosted",
+            "name": "TGI Self-Hosted Runtime",
+            "category": "self_hosted",
+            "defaultModel": os.getenv("AIOS_TGI_MODEL", "model_policy_selected"),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "huggingface_text_generation_inference",
+            "status": "available_when_aios_inference_base_url_uses_tgi",
+            "qualityRole": "self-hosted inference path with explicit model policy",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "self_hosted_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "llamafile_server",
+            "name": "llamafile Server Runtime",
+            "category": "self_hosted_or_portable",
+            "defaultModel": os.getenv("AIOS_LLAMAFILE_MODEL", "local_gguf_policy_selected"),
             "requiresDeveloperApiKey": False,
             "requiresUserAccount": False,
-            "runtimeSurface": "backend_local_queue",
-            "status": "not_used_for_real_runtime_claims",
-            "qualityRole": "non-runtime fallback for UI and workflow validation only",
+            "runtimeSurface": "llamafile_http_server",
+            "status": "available_when_llamafile_endpoint_is_configured",
+            "qualityRole": "portable/dev runtime for controlled demos",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "portable_runtime_not_enterprise_binding",
+            "backendInvokable": False,
+        },
+        {
+            "providerId": "controlled_simulator",
+            "name": "Controlled Simulator",
+            "category": "demo_only",
+            "defaultModel": "aios-controlled-simulator",
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": False,
+            "runtimeSurface": "backend_audit_only_simulator",
+            "status": "allowed_for_demo_but_never_for_live_runtime_claims",
+            "qualityRole": "strictly marked simulator for demos, tests, audit, and no-key flows",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": False,
+            "liveRuntimeGate": "simulator_never_live",
+            "backendInvokable": False,
         },
     ]
 
 
+def runtime_broker_catalog_by_id() -> dict[str, dict]:
+    return {item["providerId"]: item for item in runtime_broker_provider_catalog()}
+
+
+def runtime_broker_provider_explanation(provider_id: str, provider_status: dict | None = None) -> dict:
+    catalog = runtime_broker_catalog_by_id()
+    provider = catalog.get(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Runtime Broker provider not found")
+    can_invoke_live = bool(provider_status.get("canInvokeLiveRuntime")) if provider_status else False
+    if provider_id == "official_codex_runtime":
+        message = (
+            "Somente este provider pode declarar canInvokeLiveRuntime=true, e apenas quando RC16/RC17 binding oficial estiver ativo."
+        )
+    elif provider_id == "codex_delegated":
+        message = "Codex delegado usa auth ChatGPT/Enterprise/App-Server e nao altera canInvokeLiveRuntime do binding enterprise."
+    elif provider_id == "controlled_simulator":
+        message = "Simulador controlado pode demonstrar UX e auditoria, mas nunca declara runtime live."
+    else:
+        message = "Provider alternativo pode executar demo/fallback, mas nao substitui o binding enterprise oficial."
+    return {
+        "providerId": provider_id,
+        "selected": provider_id,
+        "canInvokeLiveRuntime": can_invoke_live,
+        "message": message,
+        "safeForNoKeyDemo": provider_id in {"puter_user_pays_browser", "github_models_demo", "controlled_simulator", "aios_cloud_runtime"},
+        "requiresSecretsInFrontend": False,
+        "secretsExposed": False,
+    }
+
+
 def runtime_broker_status(db: Session) -> dict:
+    settings = get_settings()
     official_security = official_sandbox_security_state(db)
     ollama = ollama_adapter()
     ollama_models: list[str] = []
@@ -1012,12 +1181,65 @@ def runtime_broker_status(db: Session) -> dict:
 
     ollama_model_available = ollama.default_model in ollama_models
     ollama_available = bool(ollama_models) and ollama_model_available
+    openai_api_ready = openai_model_discovery_security_state()["ready"]
+    aios_cloud_ready = bool(os.getenv("AIOS_CLOUD_RUNTIME_BASE_URL", "").strip())
+    codex_delegated_ready = bool(os.getenv("AIOS_CODEX_APP_SERVER_ENDPOINT", "").strip())
+    vllm_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "vllm" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
+    tgi_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "tgi" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
+    llamafile_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "llamafile_server" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
+    official_live = bool(official_security["canInvokeLiveRuntime"])
     providers = {
-        "official_openai_codex": {
-            "available": bool(official_security["canInvokeLiveRuntime"]),
+        "official_codex_runtime": {
+            "available": official_live,
             "requiresDeveloperApiKey": True,
-            "configuredModel": get_settings().openai_model,
+            "configuredModel": settings.openai_model,
             "missing": official_security["missing"],
+            "canInvokeLiveRuntime": official_live,
+            "officialRuntime": True,
+            "liveRuntimeGate": "runtime_binding_active",
+            "backendInvokable": True,
+            "networkCallPerformed": False,
+        },
+        "codex_delegated": {
+            "available": codex_delegated_ready,
+            "requiresDeveloperApiKey": False,
+            "authMode": "chatgpt_managed_or_enterprise",
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "backendInvokable": False,
+            "networkCallPerformed": False,
+        },
+        "aios_cloud_runtime": {
+            "available": aios_cloud_ready,
+            "requiresDeveloperApiKey": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "backendInvokable": False,
+            "networkCallPerformed": False,
+        },
+        "openai_api_authorized": {
+            "available": openai_api_ready,
+            "requiresDeveloperApiKey": True,
+            "configuredModel": settings.openai_model,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "backendInvokable": True,
+            "networkCallPerformed": False,
+        },
+        "puter_user_pays_browser": {
+            "available": True,
+            "requiresDeveloperApiKey": False,
+            "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "networkCallPerformed": False,
+        },
+        "github_models_demo": {
+            "available": bool(os.getenv("AIOS_GITHUB_MODELS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}),
+            "requiresDeveloperApiKey": False,
+            "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
             "networkCallPerformed": False,
         },
         "ollama_local_cloud": {
@@ -1028,31 +1250,69 @@ def runtime_broker_status(db: Session) -> dict:
             "modelPresentInTags": ollama_model_available,
             "models": ollama_models,
             "error": ollama_error,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "backendInvokable": True,
             "networkCallPerformed": True,
         },
-        "puter_user_pays_browser": {
-            "available": True,
+        "vllm_self_hosted": {
+            "available": vllm_ready,
             "requiresDeveloperApiKey": False,
             "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
             "networkCallPerformed": False,
         },
-        "local_demo_blocked_for_runtime_claims": {
+        "tgi_self_hosted": {
+            "available": tgi_ready,
+            "requiresDeveloperApiKey": False,
+            "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "networkCallPerformed": False,
+        },
+        "llamafile_server": {
+            "available": llamafile_ready,
+            "requiresDeveloperApiKey": False,
+            "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
+            "networkCallPerformed": False,
+        },
+        "controlled_simulator": {
             "available": True,
             "realRuntime": False,
             "backendInvokable": False,
+            "canInvokeLiveRuntime": False,
+            "officialRuntime": False,
             "networkCallPerformed": False,
         },
     }
-    if providers["official_openai_codex"]["available"]:
-        recommended = "official_openai_codex"
+    if providers["official_codex_runtime"]["available"]:
+        recommended = "official_codex_runtime"
+        reason_code = "official_binding_active"
     elif providers["ollama_local_cloud"]["available"]:
         recommended = "ollama_local_cloud"
+        reason_code = "backend_invokable_fallback_available"
+    elif providers["codex_delegated"]["available"]:
+        recommended = "codex_delegated"
+        reason_code = "codex_delegated_auth_available"
+    elif providers["aios_cloud_runtime"]["available"]:
+        recommended = "aios_cloud_runtime"
+        reason_code = "aios_cloud_workspace_available"
+    elif providers["openai_api_authorized"]["available"]:
+        recommended = "openai_api_authorized"
+        reason_code = "authorized_openai_api_available"
     elif providers["puter_user_pays_browser"]["available"]:
         recommended = "puter_user_pays_browser"
+        reason_code = "browser_user_pays_available"
     else:
-        recommended = ""
+        recommended = "controlled_simulator"
+        reason_code = "controlled_simulator_only"
+    live_runtime_provider = "official_codex_runtime" if official_live else ""
+    selected_explanation = runtime_broker_provider_explanation(recommended, providers.get(recommended))
     return {
-        "phase": "RC12_RUNTIME_BROKER",
+        "phase": "RC21_RUNTIME_BROKER_2",
         "strategy": "multi_provider_real_runtime_broker",
         "intelligenceSystem": {
             "name": "AIOS Cognitive Runtime Mesh",
@@ -1061,8 +1321,15 @@ def runtime_broker_status(db: Session) -> dict:
             "claimBoundary": "This is an orchestration/runtime intelligence layer, not a new proprietary base-model checkpoint.",
         },
         "recommendedProvider": recommended,
+        "liveRuntimeProvider": live_runtime_provider,
+        "canInvokeLiveRuntime": official_live,
+        "selection": {
+            "providerId": recommended,
+            "reasonCode": reason_code,
+            "explanation": selected_explanation["message"],
+        },
         "providers": providers,
-        "providerOrder": ["official_openai_codex", "ollama_local_cloud", "puter_user_pays_browser"],
+        "providerOrder": RUNTIME_BROKER_PROVIDER_ORDER,
         "productUnit": "codex_sessions",
         "showsTokenCounter": False,
         "secretsExposed": False,
@@ -1478,7 +1745,7 @@ def runtime_binding_status_endpoint(db: Session = Depends(get_db), user: User = 
 @app.get("/runtime/broker/providers")
 def runtime_broker_providers(user: User = Depends(get_current_user)) -> dict:
     return {
-        "phase": "RC12_RUNTIME_BROKER",
+        "phase": "RC21_RUNTIME_BROKER_2",
         "productUnit": "codex_sessions",
         "headline": "Codex sem limites. Desenvolvimento sem interrupcoes.",
         "providers": runtime_broker_provider_catalog(),
@@ -1496,7 +1763,41 @@ def runtime_broker_providers(user: User = Depends(get_current_user)) -> dict:
 def runtime_broker_status_endpoint(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     status = runtime_broker_status(db)
     audit(db, user, "runtime_broker.status", status["recommendedProvider"], {"secretsExposed": False})
+    audit(
+        db,
+        user,
+        "aios.runtime_broker.provider_selected",
+        status["recommendedProvider"],
+        {
+            "reasonCode": status["selection"]["reasonCode"],
+            "canInvokeLiveRuntime": status["canInvokeLiveRuntime"],
+            "liveRuntimeProvider": status["liveRuntimeProvider"],
+            "secretsExposed": False,
+        },
+    )
     return status
+
+
+@app.get("/runtime/broker/explain")
+def runtime_broker_explain(provider: str = "auto", db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    status = runtime_broker_status(db)
+    provider_id = status["recommendedProvider"] if provider.strip().lower() in {"", "auto"} else provider.strip().lower()
+    explanation = runtime_broker_provider_explanation(provider_id, status["providers"].get(provider_id))
+    return {
+        "phase": "RC21_RUNTIME_BROKER_2",
+        "provider": {
+            **runtime_broker_catalog_by_id()[provider_id],
+            **status["providers"].get(provider_id, {}),
+        },
+        "selection": explanation,
+        "claimBoundary": {
+            "canInvokeLiveRuntime": explanation["canInvokeLiveRuntime"],
+            "message": explanation["message"],
+            "liveRuntimeProvider": status["liveRuntimeProvider"],
+        },
+        "productUnit": "codex_sessions",
+        "secretsExposed": False,
+    }
 
 
 @app.post("/runtime/broker/invoke")
@@ -1508,8 +1809,8 @@ def runtime_broker_invoke(payload: RuntimeBrokerInvokeRequest, db: Session = Dep
     status = runtime_broker_status(db)
     requested_provider = payload.provider.strip().lower() if payload.provider else "auto"
     provider = status["recommendedProvider"] if requested_provider == "auto" else requested_provider
-    if provider == "official_openai_codex":
-        raise HTTPException(status_code=409, detail="Use /codex/runtime/invoke for the official OpenAI Codex adapter path in RC12.")
+    if provider == "official_codex_runtime":
+        raise HTTPException(status_code=409, detail="Use /codex/runtime/invoke for the official Codex adapter path after RC16 binding is active.")
     if provider != "ollama_local_cloud":
         raise HTTPException(
             status_code=424,

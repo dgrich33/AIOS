@@ -750,6 +750,88 @@ def test_rc11_runtime_model_discovery_selects_available_openai_model(monkeypatch
         get_settings.cache_clear()
 
 
+def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatch) -> None:
+    for name in [
+        "AIOS_OFFICIAL_CODEX_RUNTIME_ENDPOINT",
+        "AIOS_OFFICIAL_CODEX_SERVICE_TOKEN",
+        "AIOS_OFFICIAL_CODEX_TENANT_ID",
+        "AIOS_OFFICIAL_SANDBOX_ENVIRONMENT_ID",
+        "AIOS_OFFICIAL_SANDBOX_SECRET_STORE",
+        "AIOS_OFFICIAL_SANDBOX_LIVE_ENABLED",
+    ]:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")
+    get_settings.cache_clear()
+
+    def fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_get(self, url, *args, **kwargs)
+        raise httpx.ConnectError("ollama is not running")
+
+    original_get = httpx.Client.get
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+
+            catalog = client.get("/runtime/broker/providers", headers=headers)
+            assert catalog.status_code == 200
+            catalog_payload = catalog.json()
+            assert catalog_payload["phase"] == "RC21_RUNTIME_BROKER_2"
+            provider_ids = [item["providerId"] for item in catalog_payload["providers"]]
+            assert provider_ids == [
+                "official_codex_runtime",
+                "codex_delegated",
+                "aios_cloud_runtime",
+                "openai_api_authorized",
+                "puter_user_pays_browser",
+                "github_models_demo",
+                "ollama_local_cloud",
+                "vllm_self_hosted",
+                "tgi_self_hosted",
+                "llamafile_server",
+                "controlled_simulator",
+            ]
+            official = catalog_payload["providers"][0]
+            simulator = catalog_payload["providers"][-1]
+            assert official["officialRuntime"] is True
+            assert official["liveRuntimeGate"] == "runtime_binding_active"
+            assert simulator["officialRuntime"] is False
+            assert simulator["canClaimLiveRuntime"] is False
+
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            status_payload = status.json()
+            assert status_payload["phase"] == "RC21_RUNTIME_BROKER_2"
+            assert status_payload["canInvokeLiveRuntime"] is False
+            assert status_payload["liveRuntimeProvider"] == ""
+            assert status_payload["recommendedProvider"] == "puter_user_pays_browser"
+            assert status_payload["providerOrder"] == provider_ids
+            for provider_id, provider_status in status_payload["providers"].items():
+                if provider_id != "official_codex_runtime":
+                    assert provider_status["canInvokeLiveRuntime"] is False
+            assert status_payload["providers"]["official_codex_runtime"]["canInvokeLiveRuntime"] is False
+            assert status_payload["selection"]["reasonCode"] == "browser_user_pays_available"
+            assert status_payload["secretsExposed"] is False
+
+            explanation = client.get("/runtime/broker/explain?provider=codex_delegated", headers=headers)
+            assert explanation.status_code == 200
+            explanation_payload = explanation.json()
+            assert explanation_payload["phase"] == "RC21_RUNTIME_BROKER_2"
+            assert explanation_payload["provider"]["providerId"] == "codex_delegated"
+            assert explanation_payload["provider"]["canInvokeLiveRuntime"] is False
+            assert explanation_payload["claimBoundary"]["canInvokeLiveRuntime"] is False
+            assert "nao altera canInvokeLiveRuntime" in explanation_payload["claimBoundary"]["message"]
+            assert explanation_payload["secretsExposed"] is False
+
+            audit_logs = client.get("/admin/audit-logs", headers=headers)
+            assert audit_logs.status_code == 200
+            assert any(item["action"] == "aios.runtime_broker.provider_selected" for item in audit_logs.json())
+    finally:
+        get_settings.cache_clear()
+
+
 def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(monkeypatch) -> None:
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")
@@ -778,7 +860,7 @@ def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(mon
             status = client.get("/runtime/broker/status", headers=headers)
             assert status.status_code == 200
             status_payload = status.json()
-            assert status_payload["phase"] == "RC12_RUNTIME_BROKER"
+            assert status_payload["phase"] == "RC21_RUNTIME_BROKER_2"
             assert status_payload["recommendedProvider"] != "ollama_local_cloud"
             assert status_payload["providers"]["ollama_local_cloud"]["available"] is False
             assert status_payload["providers"]["ollama_local_cloud"]["requiresDeveloperApiKey"] is False

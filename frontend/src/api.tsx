@@ -21,6 +21,7 @@ import type {
   NoDeveloperCostRecommendation,
   RestrictedAccessRequestInfo,
   RuntimeModelDiscovery,
+  RuntimeBrokerExplanation,
   RuntimeBrokerProvider,
   RuntimeBrokerStatus,
   RuntimeBindingStatus,
@@ -59,6 +60,7 @@ type ApiContextValue = {
   runtimeInvoke: (sessionId: string, modelId: string, objective: string) => Promise<Record<string, unknown>>;
   runtimeBrokerProviders: () => Promise<{ phase: string; productUnit: string; providers: RuntimeBrokerProvider[] }>;
   runtimeBrokerStatus: () => Promise<RuntimeBrokerStatus>;
+  runtimeBrokerExplain: (provider?: string) => Promise<RuntimeBrokerExplanation>;
   runtimeBrokerInvoke: (sessionId: string, objective: string, provider?: string) => Promise<Record<string, unknown>>;
   noDeveloperCostProviders: () => Promise<NoDeveloperCostProviderCatalog>;
   noDeveloperCostRecommendation: () => Promise<NoDeveloperCostRecommendation>;
@@ -185,6 +187,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
         request('/codex/runtime/invoke', { method: 'POST', body: JSON.stringify({ session_id: sessionId, model_id: modelId, objective }) }),
       runtimeBrokerProviders: () => request('/runtime/broker/providers'),
       runtimeBrokerStatus: () => request('/runtime/broker/status'),
+      runtimeBrokerExplain: (provider = 'auto') => request(`/runtime/broker/explain?provider=${encodeURIComponent(provider)}`),
       runtimeBrokerInvoke: (sessionId, objective, provider = 'auto') =>
         request('/runtime/broker/invoke', { method: 'POST', body: JSON.stringify({ sessionId, objective, provider, intelligenceMode: 'aios_cognitive_runtime_mesh' }) }),
       noDeveloperCostProviders: () => request('/runtime/no-developer-cost/providers'),

@@ -247,10 +247,38 @@ export type RuntimeBrokerStatus = {
     claimBoundary: string;
   };
   recommendedProvider: string;
+  liveRuntimeProvider?: string;
+  canInvokeLiveRuntime?: boolean;
+  selection?: {
+    providerId: string;
+    reasonCode: string;
+    explanation: string;
+  };
   providers: Record<string, Record<string, unknown>>;
   providerOrder: string[];
   productUnit: string;
   showsTokenCounter: boolean;
+  secretsExposed: boolean;
+};
+
+export type RuntimeBrokerExplanation = {
+  phase: string;
+  provider: RuntimeBrokerProvider & Record<string, unknown>;
+  selection: {
+    providerId: string;
+    selected: string;
+    canInvokeLiveRuntime: boolean;
+    message: string;
+    safeForNoKeyDemo: boolean;
+    requiresSecretsInFrontend: boolean;
+    secretsExposed: boolean;
+  };
+  claimBoundary: {
+    canInvokeLiveRuntime: boolean;
+    message: string;
+    liveRuntimeProvider: string;
+  };
+  productUnit: string;
   secretsExposed: boolean;
 };
 
