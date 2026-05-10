@@ -25,7 +25,7 @@ Validacoes:
 Entregas:
 
 - [ ] Normalizar providers com capabilities.
-- [ ] Separar `official_codex_runtime`, `openai_api_authorized`, `puter_user_pays_browser`, `github_models_demo`, `ollama_local_cloud` e `controlled_simulator`.
+- [ ] Separar `official_codex_runtime`, `codex_delegated`, `aios_cloud_runtime`, `openai_api_authorized`, `puter_user_pays_browser`, `github_models_demo`, `ollama_local_cloud`, `vllm_self_hosted`, `tgi_self_hosted`, `llamafile_server` e `controlled_simulator`.
 - [ ] Impedir `canInvokeLiveRuntime: true` fora de official binding ativo.
 - [ ] Registrar `aios.runtime_broker.provider_selected`.
 - [ ] Adicionar endpoint de explainability do provider escolhido.
@@ -150,6 +150,43 @@ Validacoes:
 - [ ] Contract docs audit OK.
 - [ ] Public repo safety audit revisado.
 - [ ] Build/testes principais OK.
+
+## RC29 - Codex Delegated Runtime Adapter
+
+Entregas:
+
+- [ ] Criar `CodexAppServerAdapter` como provider `codex_delegated`.
+- [ ] Detectar/iniciar `codex app-server` em transporte local seguro.
+- [ ] Chamar `account/read` sem expor credenciais.
+- [ ] Oferecer login ChatGPT/device code via `account/login/start`.
+- [ ] Listar modelos via `model/list`.
+- [ ] Iniciar thread/turn e renderizar eventos no Workbench.
+- [ ] Encaminhar approvals do Codex para o AIOS Approval Gate.
+
+Validacoes:
+
+- [ ] Nenhum token aparece em log/frontend/relatorio.
+- [ ] Provider `codex_delegated` nao altera `canInvokeLiveRuntime`.
+- [ ] Falha de autenticacao mostra acao segura: fazer login novamente.
+- [ ] Websocket remoto fica desativado ou autenticado por capability token.
+
+## RC30 - AIOS Delegated Cloud Runtime MVP
+
+Entregas:
+
+- [ ] Criar provider `aios_cloud_runtime`.
+- [ ] Criar provider `vllm_self_hosted` ou `tgi_self_hosted` para staging.
+- [ ] Criar workspace efemero por sessao.
+- [ ] Guardar credenciais apenas em secret store do backend.
+- [ ] Expor stream por WebSocket autenticado.
+- [ ] Registrar OpenTelemetry/audit/redaction por sessao.
+
+Validacoes:
+
+- [ ] Usuario final nao fornece API key.
+- [ ] Workspace e destruido/arquivado conforme retencao.
+- [ ] Provider self-hosted aparece como self-hosted, nao como Codex oficial.
+- [ ] Package scan nao encontra segredo nem modelo privado.
 
 ## Definicao de pronto
 

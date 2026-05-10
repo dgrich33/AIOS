@@ -7,7 +7,7 @@ O AIOS Livre / Codex Unlimited sera um app Windows/desktop separado, construido 
 ```txt
 Workbench Premium -> Unlimited Session Engine -> Runtime Broker -> Providers
                        |                         |
-                       |                         +-> Official runtime / OpenAI API / No-Key demo / Ollama / Simulado controlado
+                       |                         +-> Official runtime / Codex delegated / AIOS cloud / Self-hosted / No-Key demo / Simulado controlado
                        |
                        +-> Agent Room -> Approval Gate -> Repo Memory -> Audit/Redaction
 ```
@@ -97,7 +97,12 @@ Providers:
 | Provider | Tipo | Requisito | Pode ser chamado de runtime oficial? |
 |---|---|---|---|
 | `official_codex_runtime` | Oficial | endpoint, service credential, tenant, sandbox, Vault/KMS, live flag | Sim, apenas quando binding estiver ativo. |
+| `codex_delegated` | Codex delegado | `codex app-server` ou `codex mcp-server` autenticado via ChatGPT/Enterprise | Sim como Codex delegado, nao como binding enterprise interno. |
 | `openai_api_authorized` | Oficial/API | API key/service account autorizada e billing aprovado | Sim, como OpenAI API autorizada, nao como runtime interno. |
+| `aios_cloud_runtime` | Cloud AIOS | backend/workspace/inferencia operados ou contratados pelo AIOS | Nao, salvo se provider oficial assim permitir. |
+| `vllm_self_hosted` | Self-hosted | runtime vLLM gerido pelo AIOS | Nao. |
+| `tgi_self_hosted` | Self-hosted | runtime TGI gerido pelo AIOS | Nao. |
+| `llamafile_server` | Fallback/dev | servidor llamafile controlado | Nao. |
 | `github_models_demo` | Demo | credencial GitHub autorizada | Nao. |
 | `puter_user_pays_browser` | Demo/user-pays | usuario autenticado no provider | Nao. |
 | `ollama_local_cloud` | Fallback/dev | Ollama instalado/logado/modelo disponivel | Nao. |
@@ -109,6 +114,41 @@ Regra de binding:
 Somente `official_codex_runtime` pode declarar `canInvokeLiveRuntime: true`.
 Isso exige `runtime-binding-status.ps1` com binding ativo e `secretsExposed: false`.
 ```
+
+`codex_delegated` deve ter status proprio, por exemplo `codexDelegatedReady`, porque usa autenticacao e disponibilidade geridas pelo Codex app-server/ChatGPT sign-in, nao o binding enterprise interno do RC16/RC17.
+
+### 4.1 Codex Delegated Runtime
+
+Responsabilidade:
+
+- permitir UX sem OpenAI Platform API key armazenada no AIOS;
+- iniciar/verificar login via `codex app-server`;
+- listar modelos pelo catalogo retornado pelo Codex;
+- renderizar eventos, approvals e historico no Workbench.
+
+Regras:
+
+- AIOS nao le nem copia credenciais brutas;
+- AIOS nao implementa proxy OAuth;
+- AIOS nao compartilha estado de autenticacao entre maquinas;
+- AIOS trata `codex_delegated` como provider distinto de `official_codex_runtime`.
+
+### 4.2 AIOS Delegated Cloud Runtime
+
+Responsabilidade:
+
+- operar workspace efemero por sessao;
+- rotear chamadas para runtime self-hosted ou comercial contratado pelo AIOS;
+- manter segredo apenas no backend/secret store;
+- permitir demo sem chave de API do usuario final.
+
+Providers iniciais:
+
+- vLLM;
+- TGI;
+- Ollama Server;
+- llamafile server;
+- providers comerciais explicitamente opt-in.
 
 ### 5. Agent Room
 
@@ -249,6 +289,10 @@ Adicionar aos eventos ja existentes:
 - `aios.repo_memory.indexed`;
 - `aios.repo_memory.checkpointed`;
 - `aios.runtime_broker.provider_selected`;
+- `aios.codex_delegated.auth_state_checked`;
+- `aios.codex_delegated.model_listed`;
+- `aios.cloud_workspace.created`;
+- `aios.cloud_workspace.destroyed`;
 - `aios.no_key_demo.started`;
 - `aios.no_key_demo.completed`;
 - `aios.policy_check.completed`;

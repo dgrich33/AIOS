@@ -25,6 +25,10 @@ O foco do produto nao e "modelo secreto sem API" nem "peso local". O foco e uma 
 | `TECHNICAL_BLUEPRINT.md` | Arquitetura do produto separado e limites de seguranca. |
 | `DEMO_NO_KEY_AND_PLAN_B.md` | Como demonstrar sem chave do usuario sem fingir runtime oficial. |
 | `IMPLEMENTATION_ROADMAP.md` | Roadmap de execucao por RCs futuras. |
+| `TEAM_IDEAS_INTAKE_2026_05_10.md` | Consolidacao das ideias da equipe e decisoes aceitas/bloqueadas. |
+| `CODEX_DELEGATED_RUNTIME_AUTH.md` | Caminho seguro para Codex app-server com ChatGPT/Enterprise sign-in. |
+| `SELF_HOSTED_RUNTIME_PROVIDER_POLICY.md` | Politica para providers self-hosted/comerciais sem chave do usuario no app. |
+| `PRODUCT_THREAT_MODEL.md` | Threat model do produto separado. |
 
 ## Regras de governanca
 

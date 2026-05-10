@@ -42,6 +42,9 @@ Camada que escolhe o runtime/modelo conforme disponibilidade, permissao e risco.
 Providers planejados:
 
 - Official Codex Runtime, quando provisionado;
+- Codex Delegated Runtime via Codex app-server e ChatGPT/Enterprise sign-in;
+- AIOS Delegated Cloud Runtime operado pelo AIOS;
+- self-hosted runtimes como vLLM, TGI, Ollama Server e llamafile;
 - OpenAI API autorizada, quando existir budget/credencial;
 - GitHub Models demo, para demonstracoes controladas;
 - Puter.js user-pays, para demo browser sem custo direto do desenvolvedor;
@@ -116,6 +119,7 @@ Principios:
 - workspace isolado por sessao;
 - auditoria por sessao;
 - runtime cloud delegado quando aprovado;
+- Codex app-server delegado quando o usuario/workspace estiver autenticado no Codex;
 - demo sem chave marcada como demo, nunca como runtime oficial ativo.
 
 ## Nao objetivos
