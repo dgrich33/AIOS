@@ -30,6 +30,7 @@ O foco do produto nao e "modelo secreto sem API" nem "peso local". O foco e uma 
 | `SELF_HOSTED_RUNTIME_PROVIDER_POLICY.md` | Politica para providers self-hosted/comerciais sem chave do usuario no app. |
 | `PRODUCT_THREAT_MODEL.md` | Threat model do produto separado. |
 | `ACCOUNT_LINKED_AIOS_PLAN.md` | Proposta simples de plano vinculado a mesma conta Codex/AIOS. |
+| `../RC20_PRODUCT_SHELL.md` | Evidencia da tela RC20 no Workbench e validacoes executadas. |
 
 ## Regras de governanca
 

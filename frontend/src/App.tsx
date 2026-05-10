@@ -921,6 +921,50 @@ export function App() {
           <MetricCard icon={<Activity size={20} />} label="Sessoes ativas" value={state.controlPlane?.activeSessions ?? 0} />
         </section>
 
+        <section className="detail-panel product-core-panel product-launch-panel" aria-labelledby="aios-product-shell-title">
+          <div className="product-launch-grid">
+            <div className="product-launch-copy">
+              <span className="product-kicker">RC20 Product Shell</span>
+              <h2 id="aios-product-shell-title">AIOS Livre / Codex Unlimited</h2>
+              <p>
+                App Windows/Desktop para engenharia com Sessoes Codex, Workbench Premium,
+                Agent Room, snapshots, handoff, auditoria, redaction e runtime delegado.
+              </p>
+              <div className="product-pill-row" aria-label="Contrato de produto">
+                <span>Conta vinculada</span>
+                <span>Sessoes Codex</span>
+                <span>API key nao armazenada</span>
+                <span>Sem medidor de limite na UX</span>
+              </div>
+              <a
+                className="product-doc-link"
+                href="https://github.com/dgrich33/AIOS/blob/main/docs/product/PRODUCT_THREAT_MODEL.md"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Docs de governanca
+              </a>
+            </div>
+            <div className="product-launch-stack" aria-label="Pilares do produto">
+              <div>
+                <Sparkles size={18} />
+                <strong>AIOS Workbench Premium</strong>
+                <span>Timeline, diff visual, build/test logs, risk score e relatorio executivo.</span>
+              </div>
+              <div>
+                <Workflow size={18} />
+                <strong>Codex Delegated Runtime</strong>
+                <span>Auth delegada por conta/plano elegivel, sem chave de API colada no app.</span>
+              </div>
+              <div>
+                <ShieldCheck size={18} />
+                <strong>Governanca por sessao</strong>
+                <span>Approval Gate, RBAC, auditoria e redaction antes de exportar evidencia.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="workbench-grid">
           <article className="detail-panel product-core-panel">
             <div className="panel-heading">
@@ -1503,10 +1547,10 @@ export function App() {
               <dd>{state.controlPlane?.availabilityMode ?? 'local_enterprise_demo'}</dd>
               <dt>Capabilities</dt>
               <dd>{state.controlPlane?.capabilities?.join(', ') ?? 'mcp, skills, snapshots, qos'}</dd>
-              <dt>Contador</dt>
-              <dd>{state.entitlement?.showsTokenCounter ? 'visivel' : 'oculto na UX'}</dd>
-              <dt>Quota semanal</dt>
-              <dd>{state.entitlement?.hasWeeklyTokenQuota ? 'ativa' : 'inexistente'}</dd>
+              <dt>Uso visivel</dt>
+              <dd>{state.entitlement?.productUnit ?? 'codex_sessions'}</dd>
+              <dt>Experiencia</dt>
+              <dd>{state.entitlement?.showsTokenCounter || state.entitlement?.hasWeeklyTokenQuota ? 'revisar politica de produto' : 'continua por sessoes'}</dd>
             </dl>
             <button className="secondary-button full" onClick={evaluateAbuse} disabled={Boolean(actionLoading)}>
               <ShieldCheck size={17} />

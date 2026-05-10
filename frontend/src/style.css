@@ -399,6 +399,109 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
+.product-launch-panel {
+  margin-bottom: 18px;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.1), rgba(37, 99, 235, 0.08)),
+    rgba(255, 255, 255, 0.97);
+}
+
+.product-launch-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.product-launch-copy {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+}
+
+.product-kicker {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.product-launch-copy h2 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.product-launch-copy p {
+  max-width: 760px;
+  margin: 0;
+  color: #334155;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.product-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.product-pill-row span {
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.product-doc-link {
+  width: fit-content;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.product-doc-link:hover {
+  text-decoration: underline;
+}
+
+.product-launch-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.product-launch-stack div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 5px 10px;
+  border-left: 3px solid rgba(15, 118, 110, 0.35);
+  padding: 10px 0 10px 13px;
+}
+
+.product-launch-stack svg {
+  grid-row: 1 / span 2;
+  color: #0f766e;
+}
+
+.product-launch-stack strong {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.product-launch-stack span {
+  min-width: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .rc13-license-panel {
   background:
     linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.06)),
@@ -576,7 +679,8 @@ textarea:focus {
 
 @media (max-width: 1080px) {
   .metrics-grid,
-  .workbench-grid {
+  .workbench-grid,
+  .product-launch-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -608,7 +712,8 @@ textarea:focus {
   }
 
   .metrics-grid,
-  .workbench-grid {
+  .workbench-grid,
+  .product-launch-grid {
     grid-template-columns: 1fr;
   }
 

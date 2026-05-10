@@ -11,7 +11,17 @@ test('logs in and uses Codex Workbench session controls', async ({ page }) => {
   await page.getByLabel('Senha').fill('AiosAdmin123!');
   await page.getByRole('button', { name: /Entrar no Workbench/i }).click();
   await expect(page.getByRole('heading', { name: 'Codex Workbench' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AIOS Livre / Codex Unlimited' })).toBeVisible();
   await expect(page.getByText('codex_sessions').first()).toBeVisible();
+  await expect(page.getByText('Sessoes Codex').first()).toBeVisible();
+  await expect(page.getByText('Conta vinculada').first()).toBeVisible();
+  await expect(page.getByText('AIOS Workbench Premium').first()).toBeVisible();
+  await expect(page.getByText('Codex Delegated Runtime').first()).toBeVisible();
+  await expect(page.getByText('API key nao armazenada').first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Docs de governanca/i })).toBeVisible();
+  await expect(page.getByText('Contador')).toHaveCount(0);
+  await expect(page.getByText('Quota semanal')).toHaveCount(0);
+  await expect(page.getByText('Saldo de tokens')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Product Manifest' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Licenca Local RC13' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Scope Authority RC14' })).toBeVisible();

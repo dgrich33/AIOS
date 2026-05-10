@@ -8,17 +8,19 @@ Transformar a base RC atual em um produto separado com experiencia ilimitada por
 
 Entregas:
 
-- [ ] Criar identidade de produto `AIOS Livre / Codex Unlimited`.
-- [ ] Adicionar tela inicial com unidade `Sessoes Codex`.
-- [ ] Remover qualquer texto de UI que pareca token/saldo/quota.
-- [ ] Adicionar indicador de modo: oficial, demo, fallback ou simulacao controlada.
-- [ ] Adicionar link para docs de governanca.
+- [x] Criar identidade de produto `AIOS Livre / Codex Unlimited`.
+- [x] Adicionar tela inicial com unidade `Sessoes Codex`.
+- [x] Remover qualquer texto de UI que pareca token/saldo/quota.
+- [x] Adicionar indicador de modo: oficial, demo, fallback ou simulacao controlada.
+- [x] Adicionar link para docs de governanca.
 
 Validacoes:
 
-- [ ] Frontend build OK.
-- [ ] Playwright smoke test da tela inicial.
-- [ ] Busca textual por `token balance`, `quota`, `creditos` na UI.
+- [x] Frontend build OK.
+- [x] Playwright smoke test da tela inicial.
+- [x] Busca textual por `token balance`, `quota`, `creditos` na UI.
+
+Evidencia: `docs/RC20_PRODUCT_SHELL.md`.
 
 ## RC21 - Runtime Broker 2.0
 
