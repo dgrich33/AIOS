@@ -20,6 +20,9 @@ Data da pesquisa: 2026-05-10.
 | OpenAI Codex app-server README: `https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md` | `codex app-server` usa JSON-RPC, expoe account/login, model/list, threads, turns, eventos, approvals, MCP e skills; e a melhor base para adapter delegado. |
 | OpenAI Codex MCP interface: `https://github.com/openai/codex/blob/main/codex-rs/docs/codex_mcp_interface.md` | Interface experimental para controlar Codex local via MCP/JSON-RPC, com threads, turns, modelos, eventos e approvals. |
 | OpenAI API docs - GPT-5.2-Codex model page: `https://developers.openai.com/api/docs/models/gpt-5.2-codex` | `gpt-5.2-codex` aparece documentado como modelo Codex para tarefas agenticas longas, mas a pagina tambem mostra alias/snapshot deprecated. Usar como compatibilidade, nao como pino unico. |
+| OpenAI Help - Using Codex with your ChatGPT plan: `https://help.openai.com/en/articles/11369540` | Codex pode estar incluido em planos ChatGPT elegiveis; isso sustenta o fluxo de conta/plano vinculado. |
+| OpenAI Help - ChatGPT vs Platform billing: `https://help.openai.com/pt-br/articles/9039756-billing-settings-in-chatgpt-vs-platform` | ChatGPT e API Platform tem billing separado; isso impede tratar assinatura ChatGPT/Codex como API key compartilhada. |
+| OpenAI Help - ChatGPT subscription to API: `https://help.openai.com/en/articles/8156019-how-can-i-move-my-chatgpt-subscription-to-the-api` | API usage e gerido/cobrado separadamente; reforca que AIOS deve usar entitlement/runtime delegado, nao "API do plano". |
 | OpenAI Codex blog - long horizon tasks: `https://developers.openai.com/blog/run-long-horizon-tasks-with-codex` | Reforca a direcao de tarefas longas: plan, edit, test, repair, worktrees, Git, diffs, logs e memoria em arquivos. |
 | OpenAI Codex repo: `https://github.com/openai/codex` | Referencia de direcao oficial para CLI, app, IDE extension, sandbox, MCP, skills e automations. |
 
@@ -30,6 +33,7 @@ Leitura para o AIOS:
 - Modelos precisam entrar por uma camada adaptativa, porque nomes e disponibilidade mudam.
 - A rota recomendada de modelo deve ser adaptativa: priorizar o modelo atual aprovado para coding/agentes, como `gpt-5.5` quando disponivel, e manter `gpt-5.2-codex` apenas como compatibilidade/provisionamento especifico.
 - O produto deve mostrar estado, risco e atividade, nao tokens/creditos.
+- A proposta de conta vinculada e viavel como produto: mesma identidade/plano para AIOS e Codex, mas sem transformar a assinatura ChatGPT/Codex em API key da Platform.
 
 ## Projetos de referencia
 

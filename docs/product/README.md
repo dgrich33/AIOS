@@ -29,6 +29,7 @@ O foco do produto nao e "modelo secreto sem API" nem "peso local". O foco e uma 
 | `CODEX_DELEGATED_RUNTIME_AUTH.md` | Caminho seguro para Codex app-server com ChatGPT/Enterprise sign-in. |
 | `SELF_HOSTED_RUNTIME_PROVIDER_POLICY.md` | Politica para providers self-hosted/comerciais sem chave do usuario no app. |
 | `PRODUCT_THREAT_MODEL.md` | Threat model do produto separado. |
+| `ACCOUNT_LINKED_AIOS_PLAN.md` | Proposta simples de plano vinculado a mesma conta Codex/AIOS. |
 
 ## Regras de governanca
 

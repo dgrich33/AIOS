@@ -9,7 +9,7 @@ Workbench Premium -> Unlimited Session Engine -> Runtime Broker -> Providers
                        |                         |
                        |                         +-> Official runtime / Codex delegated / AIOS cloud / Self-hosted / No-Key demo / Simulado controlado
                        |
-                       +-> Agent Room -> Approval Gate -> Repo Memory -> Audit/Redaction
+                       +-> Account-Linked Entitlement -> Agent Room -> Approval Gate -> Repo Memory -> Audit/Redaction
 ```
 
 ## Componentes
@@ -260,20 +260,39 @@ Cada ferramenta deve ter:
 - eventos de auditoria;
 - redaction aplicada.
 
+### 11. Account-Linked Entitlement
+
+Responsabilidade:
+
+- validar se a conta usada no Codex/ChatGPT/AIOS tem plano elegivel;
+- liberar download do AIOS;
+- ativar Workbench Premium e Sessoes Codex;
+- revogar acesso quando plano for cancelado;
+- manter API key fora do app.
+
+Regras:
+
+- o AIOS pode usar a mesma identidade da conta;
+- o AIOS nao deve compartilhar API key da conta;
+- o AIOS deve separar billing de ChatGPT/Codex e API Platform quando explicar tecnicamente;
+- a UI mostra plano/entitlement, nao tokens.
+
 ## Fluxo principal
 
 1. Usuario abre AIOS Desktop.
-2. Seleciona projeto ou workspace.
-3. Cria Sessao Codex.
-4. Architect Agent cria plano.
-5. Approval Gate pede aprovacao se necessario.
-6. Runtime Broker escolhe provider disponivel.
-7. Agent Room executa tarefas.
-8. Repo Memory cria checkpoints.
-9. Workbench mostra timeline/diff/build.
-10. Reviewer/Security validam.
-11. Release Agent empacota ou gera PR/diff.
-12. Docs Agent gera relatorio redigido.
+2. Entra com a mesma conta elegivel usada no Codex/AIOS.
+3. Account-Linked Entitlement valida plano.
+4. Seleciona projeto ou workspace.
+5. Cria Sessao Codex.
+6. Architect Agent cria plano.
+7. Approval Gate pede aprovacao se necessario.
+8. Runtime Broker escolhe provider disponivel.
+9. Agent Room executa tarefas.
+10. Repo Memory cria checkpoints.
+11. Workbench mostra timeline/diff/build.
+12. Reviewer/Security validam.
+13. Release Agent empacota ou gera PR/diff.
+14. Docs Agent gera relatorio redigido.
 
 ## Eventos obrigatorios novos
 
@@ -297,6 +316,10 @@ Adicionar aos eventos ja existentes:
 - `aios.no_key_demo.completed`;
 - `aios.policy_check.completed`;
 - `aios.release.package_scanned`.
+- `aios.account_link.started`;
+- `aios.entitlement.checked`;
+- `aios.download_link.issued`;
+- `aios.plan.revoked`.
 
 ## Criterios de aceite
 

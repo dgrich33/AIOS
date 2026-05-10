@@ -188,6 +188,25 @@ Validacoes:
 - [ ] Provider self-hosted aparece como self-hosted, nao como Codex oficial.
 - [ ] Package scan nao encontra segredo nem modelo privado.
 
+## RC31 - Account-Linked AIOS Plan
+
+Entregas:
+
+- [ ] Criar modelo de entitlement `account_linked_aios`.
+- [ ] Adicionar fluxo de download por conta elegivel.
+- [ ] Adicionar login "Entrar com a mesma conta do Codex/AIOS".
+- [ ] Adicionar status de plano no Workbench sem tokens/saldo/quota.
+- [ ] Separar copy de ChatGPT/Codex plan e API Platform.
+- [ ] Registrar eventos `aios.account_link.started`, `aios.entitlement.checked`, `aios.download_link.issued` e `aios.plan.revoked`.
+
+Validacoes:
+
+- [ ] Usuario sem entitlement nao ativa Workbench Premium.
+- [ ] Usuario com entitlement ativa Sessoes Codex.
+- [ ] AIOS nao pede API key do usuario.
+- [ ] Cancelamento/revogacao remove acesso.
+- [ ] Logs nao contem access token, refresh token ou API key.
+
 ## Definicao de pronto
 
 A fase do produto separado esta pronta para demonstracao executiva quando:

@@ -122,6 +122,27 @@ Principios:
 - Codex app-server delegado quando o usuario/workspace estiver autenticado no Codex;
 - demo sem chave marcada como demo, nunca como runtime oficial ativo.
 
+### 6. Account-Linked AIOS Plan
+
+O caminho comercial mais simples e vincular AIOS a mesma conta/plano usado no Codex/ChatGPT.
+
+Fluxo:
+
+- usuario assina plano elegivel;
+- recebe link de download no email da conta;
+- instala AIOS;
+- entra com a mesma conta;
+- AIOS valida entitlement;
+- Workbench Premium e Sessoes Codex ficam ativos.
+
+Regra:
+
+```txt
+Conta/plano compartilhados nao significam API key compartilhada.
+```
+
+O AIOS deve usar entitlement e runtime delegado, sem pedir ou extrair API key do usuario.
+
 ## Nao objetivos
 
 - Nao embutir pesos, checkpoints ou binarios privados em build publico.
