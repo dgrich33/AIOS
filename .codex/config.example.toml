@@ -1,0 +1,23 @@
+[mcp_servers.aios_repo]
+command = "node"
+args = ["C:\\AIOS\\aios-codex-unlimited-enterprise-v2\\mcp\\aios-mcp-repo\\dist\\server.js"]
+
+[mcp_servers.aios_repo.env]
+AIOS_WORKSPACE = "C:\\AIOS\\aios-codex-unlimited-enterprise-v2"
+AIOS_SNAPSHOT_DIR = "C:\\AIOS\\aios-codex-unlimited-enterprise-v2\\aios-snapshots"
+AIOS_API_URL = "http://localhost:8000"
+# Mint with: .\scripts\mint-mcp-service-token.ps1
+AIOS_SERVICE_TOKEN = "aios_st_replace_with_local_service_token"
+# Set this to the active Codex session id when you want MCP events to appear in the Workbench.
+AIOS_SESSION_ID = "replace_with_active_session_id"
+
+[mcp_servers.aios_core]
+command = "node"
+args = ["C:\\AIOS\\aios-codex-unlimited-enterprise-v2\\mcp\\aios-mcp-core\\dist\\server.js"]
+
+[mcp_servers.aios_core.env]
+AIOS_API_URL = "http://localhost:8000"
+AIOS_ADMIN_EMAIL = "admin@aios.local"
+AIOS_ADMIN_PASSWORD = "AiosAdmin123!"
+# Optional. If present, MCP core uses it instead of the admin dev login.
+AIOS_SERVICE_TOKEN = "aios_st_replace_with_local_service_token"

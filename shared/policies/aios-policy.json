@@ -1,0 +1,33 @@
+{
+  "productUnit": "codex_sessions",
+  "forbiddenProductUnits": [
+    "tokens",
+    "token_balance",
+    "weekly_token_quota",
+    "credit_package"
+  ],
+  "sensitiveFiles": [
+    ".env",
+    "*.pem",
+    "*.key",
+    "secrets.json"
+  ],
+  "allowedCommands": [
+    "npm",
+    "python",
+    "py",
+    "pytest",
+    "git",
+    "docker",
+    "node",
+    "powershell"
+  ],
+  "blockedCommandPatterns": [
+    "Remove-Item -Recurse C:\\",
+    "rm -rf /",
+    "format"
+  ],
+  "safePathRequired": true,
+  "snapshotRequired": true,
+  "auditMcpToolCalls": true
+}

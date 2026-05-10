@@ -1,0 +1,6 @@
+Start-Process "http://localhost:5173"
+Start-Process "http://localhost:8000/docs"
+Start-Process "http://localhost:3001"
+Start-Process "http://localhost:9090"
+Start-Process "http://localhost:8200"
+Start-Process "http://localhost:9093"

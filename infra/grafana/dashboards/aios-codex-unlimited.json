@@ -1,0 +1,53 @@
+{
+  "title": "AIOS Codex Unlimited",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Sessions Created",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "aios_session_created_total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "QoS Queue Depth",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "aios_qos_queue_depth"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(aios_http_requests_total[5m]))"
+        }
+      ]
+    }
+  ]
+}

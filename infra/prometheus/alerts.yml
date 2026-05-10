@@ -1,0 +1,26 @@
+groups:
+  - name: aios
+    rules:
+      - alert: AIOSBackendDown
+        expr: up{job="aios-backend"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: AIOS backend is down
+
+      - alert: AIOSQoSQueueHigh
+        expr: aios_qos_queue_depth > 25
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: AIOS QoS queue depth is high
+
+      - alert: AIOSNoSessionsCreated
+        expr: increase(aios_session_created_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: No AIOS Codex sessions created recently
