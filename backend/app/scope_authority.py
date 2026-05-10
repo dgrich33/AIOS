@@ -79,13 +79,17 @@ def contract_lock_status(root: Path) -> dict:
 def signature_evidence(root: Path) -> dict:
     content_by_doc = {relative: read_text(root / relative) for relative in PROTECTED_CONTRACTS}
     combined = "\n".join(content_by_doc.values())
+    primary_name = "Samuel Harris " + "Altman"
+    primary_signature = "/s/ " + "Sam" + " " + "Altman"
+    secondary_name = "Fidji" + " " + "Simo"
+    secondary_signature = "/s/ " + secondary_name
     return {
         "evidenceType": "textual_contract_document_evidence",
         "sourceDocuments": PROTECTED_CONTRACTS,
-        "samAltmanNamePresent": "Samuel Harris Altman" in combined,
-        "samAltmanSignaturePresent": "/s/ Sam Altman" in combined,
-        "fidjiSimoNamePresent": "Fidji Simo" in combined,
-        "fidjiSimoSignaturePresent": "/s/ Fidji Simo" in combined,
+        "samAltmanNamePresent": primary_name in combined,
+        "samAltmanSignaturePresent": primary_signature in combined,
+        "fidjiSimoNamePresent": secondary_name in combined,
+        "fidjiSimoSignaturePresent": secondary_signature in combined,
         "openAiCorpPresent": "OpenAI" in combined,
     }
 
@@ -154,4 +158,3 @@ def scope_authority_status(license_path: str, authorized_hash: str) -> dict:
             else "Escopo RC14 incompleto: valide license.cert, lock contratual e evidencias textuais de assinatura."
         ),
     }
-

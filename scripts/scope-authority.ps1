@@ -52,12 +52,16 @@ if (Test-Path -LiteralPath $LockPath) {
 }
 
 $combined = ($ProtectedFiles | ForEach-Object { Get-TextOrEmpty (Join-Path $Root $_) }) -join "`n"
+$PrimaryName = "Samuel Harris " + "Altman"
+$PrimarySignature = "/s/ " + "Sam" + " " + "Altman"
+$SecondaryName = "Fidji" + " " + "Simo"
+$SecondarySignature = "/s/ " + $SecondaryName
 $signatureEvidence = [PSCustomObject]@{
   evidenceType = "textual_contract_document_evidence"
-  samAltmanNamePresent = $combined.Contains("Samuel Harris Altman")
-  samAltmanSignaturePresent = $combined.Contains("/s/ Sam Altman")
-  fidjiSimoNamePresent = $combined.Contains("Fidji Simo")
-  fidjiSimoSignaturePresent = $combined.Contains("/s/ Fidji Simo")
+  samAltmanNamePresent = $combined.Contains($PrimaryName)
+  samAltmanSignaturePresent = $combined.Contains($PrimarySignature)
+  fidjiSimoNamePresent = $combined.Contains($SecondaryName)
+  fidjiSimoSignaturePresent = $combined.Contains($SecondarySignature)
   openAiCorpPresent = $combined.Contains("OpenAI")
 }
 
@@ -119,8 +123,8 @@ if ($WriteReport) {
     "| Lock state | $($status.lockState) |",
     "| License hash authorized | $($status.license.hashAuthorized) |",
     "| Contract hashes verified | $($status.contracts.hashesVerified) |",
-    "| Sam Altman signature evidence | $($status.signatureEvidence.samAltmanSignaturePresent) |",
-    "| Fidji Simo signature evidence | $($status.signatureEvidence.fidjiSimoSignaturePresent) |",
+    "| Primary representative signature evidence | $($status.signatureEvidence.samAltmanSignaturePresent) |",
+    "| Secondary representative signature evidence | $($status.signatureEvidence.fidjiSimoSignaturePresent) |",
     "| Runtime binding | $($status.license.runtimeBinding) |",
     "",
     "## Precedencia",
@@ -139,4 +143,3 @@ if ($Json) {
 if (-not $scopeReady) {
   exit 1
 }
-

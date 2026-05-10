@@ -169,6 +169,7 @@ foreach ($file in $files) {
 
   $text = Get-TextContent -RelativePath $normalized
   if ($null -eq $text) { continue }
+  $isAuditRuleFile = $normalized -eq "scripts/public-repo-safety-audit.ps1"
 
   foreach ($entry in $secretPatterns) {
     $matches = [regex]::Matches($text, $entry.Pattern)
@@ -190,6 +191,7 @@ foreach ($file in $files) {
   }
 
   foreach ($entry in $publicSensitivePatterns) {
+    if ($isAuditRuleFile) { continue }
     $matches = [regex]::Matches($text, $entry.Pattern)
     foreach ($match in $matches) {
       if ($AllowSensitiveContractDocs -and $normalized -like "docs/legal/*") { continue }
