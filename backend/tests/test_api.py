@@ -922,6 +922,40 @@ def test_rc24_approval_gate_records_human_decision_without_executing_action() ->
         assert "approval_gate.approved" in actions
 
 
+def test_rc25_final_readiness_separates_release_candidate_from_production_binding() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+
+        response = client.get("/release/final-readiness", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["phase"] == "RC25_FINAL_READINESS"
+        assert payload["product"] == "AIOS Codex Unlimited"
+        assert payload["releaseVersion"] == "RC25"
+        assert payload["deliverableState"] == "functional_release_candidate"
+        assert payload["readyForLocalDemo"] is True
+        assert payload["readyForPublicPackage"] is True
+        assert payload["readyForProduction"] is False
+        assert payload["productionState"] == "blocked_until_official_runtime_binding"
+        assert payload["secretsExposed"] is False
+        assert payload["userVisibleMeter"] == "none"
+        assert payload["package"]["script"] == "scripts/rc25-package.ps1"
+        assert payload["package"]["includesPrivateCodexArtifacts"] is False
+        assert payload["runtime"]["canInvokeLiveRuntime"] is False
+        assert "official_runtime_binding" in payload["blockingItems"]
+        criterion_ids = {item["id"] for item in payload["criteria"]}
+        assert {
+            "contract_authority",
+            "runtime_broker",
+            "approval_gate",
+            "codex_delegated_auth_boundary",
+            "public_package_safety",
+            "official_runtime_binding",
+        }.issubset(criterion_ids)
+        assert "OPENAI_API_KEY" not in str(payload)
+        assert "auth.json" not in str(payload.get("package", {}))
+
+
 def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(monkeypatch) -> None:
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")

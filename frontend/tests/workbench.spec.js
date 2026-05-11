@@ -47,6 +47,9 @@ test('logs in and uses Codex Workbench session controls', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Secure Runtime Bridge' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Context Engine' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Windows Release' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Final Readiness RC25' })).toBeVisible();
+  await expect(page.getByText('blocked_until_official_runtime_binding').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Atualizar Readiness Final/i })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Official Integration' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Official Sandbox' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Restricted Access' })).toBeVisible();

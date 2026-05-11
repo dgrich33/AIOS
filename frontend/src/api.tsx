@@ -10,6 +10,7 @@ import type {
   ControlPlaneStatus,
   ContextIndexInfo,
   Entitlement,
+  FinalReadiness,
   Handoff,
   IdentityProfile,
   IntegrationGuardrails,
@@ -81,6 +82,7 @@ type ApiContextValue = {
   queryContext: (query: string, sessionId?: string) => Promise<Record<string, unknown>>;
   skillStore: () => Promise<SkillStoreItem[]>;
   windowsReleaseManifest: () => Promise<WindowsReleaseManifest>;
+  finalReadiness: () => Promise<FinalReadiness>;
   officialIntegrationReadiness: () => Promise<OfficialIntegrationReadiness>;
   officialAdapterContract: () => Promise<Record<string, unknown>>;
   officialAdapterDryRun: (modelId: string, objective: string) => Promise<Record<string, unknown>>;
@@ -220,6 +222,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
         request('/context/query', { method: 'POST', body: JSON.stringify({ query, sessionId }) }),
       skillStore: () => request('/skill-store'),
       windowsReleaseManifest: () => request('/release/windows/manifest'),
+      finalReadiness: () => request('/release/final-readiness'),
       officialIntegrationReadiness: () => request('/official-integration/readiness'),
       officialAdapterContract: () => request('/official-integration/adapter/contract'),
       officialAdapterDryRun: (modelId, objective) =>

@@ -649,6 +649,110 @@ def approval_gate_response(item: ApprovalGateRequest) -> dict:
     }
 
 
+def final_readiness_state(db: Session) -> dict:
+    settings = get_settings()
+    authority = scope_authority_status(settings.aios_license_path, settings.aios_license_authorized_hash)
+    sandbox_state = official_sandbox_security_state(db)
+    broker_state = runtime_broker_status(db)
+    delegated_auth = codex_delegated_auth_status_state()
+    approval_policy = approval_gate_policy()
+    bridge = db.query(SecureRuntimeBridge).filter(SecureRuntimeBridge.bridge_id == "aios-secure-runtime-bridge").first()
+    release = db.query(WindowsReleaseArtifact).filter(WindowsReleaseArtifact.release_id == "aios-windows-rc3").first()
+
+    criteria = [
+        {
+            "id": "contract_authority",
+            "label": "Contract authority and license scope",
+            "status": "passed" if authority.get("scopeReady") and authority.get("contracts", {}).get("hashesVerified") else "blocked",
+            "evidence": "license.cert + contract lock",
+        },
+        {
+            "id": "runtime_broker",
+            "label": "Model-adaptive Runtime Broker",
+            "status": "passed" if broker_state.get("phase") == "RC21_RUNTIME_BROKER_2" and not broker_state.get("secretsExposed") else "blocked",
+            "evidence": broker_state.get("recommendedProvider", "auto"),
+        },
+        {
+            "id": "approval_gate",
+            "label": "Human Approval Gate",
+            "status": "passed" if approval_policy["requiresHumanApproval"] and not approval_policy["autoExecuteAllowed"] else "blocked",
+            "evidence": "RC24 approval required before sensitive operations",
+        },
+        {
+            "id": "codex_delegated_auth_boundary",
+            "label": "Codex delegated auth boundary",
+            "status": "passed" if not delegated_auth["authJsonContentRead"] and not delegated_auth["tokenValuesExposed"] else "blocked",
+            "evidence": delegated_auth["authState"],
+        },
+        {
+            "id": "secure_runtime_bridge",
+            "label": "Secure Runtime Bridge",
+            "status": "passed" if bridge and bridge.requires_signed_artifact_authorization and not bridge.stores_private_artifacts else "blocked",
+            "evidence": bridge.mode if bridge else "missing",
+        },
+        {
+            "id": "public_package_safety",
+            "label": "Public package safety",
+            "status": "passed" if release and not release.includes_private_codex_artifacts else "blocked",
+            "evidence": "restricted package scan required before ZIP",
+        },
+        {
+            "id": "official_runtime_binding",
+            "label": "Official live runtime binding",
+            "status": "passed" if sandbox_state.get("canInvokeLiveRuntime") else "blocked",
+            "evidence": sandbox_state.get("state", "blocked_until_secure_environment"),
+        },
+    ]
+    local_criteria = [item for item in criteria if item["id"] != "official_runtime_binding"]
+    ready_for_local_demo = all(item["status"] == "passed" for item in local_criteria)
+    ready_for_public_package = ready_for_local_demo and bool(release and not release.includes_private_codex_artifacts)
+    ready_for_production = ready_for_public_package and bool(sandbox_state.get("canInvokeLiveRuntime"))
+    blocking_items = [item["id"] for item in criteria if item["status"] != "passed"]
+    readiness_score = round((sum(1 for item in criteria if item["status"] == "passed") / len(criteria)) * 100)
+
+    return {
+        "phase": "RC25_FINAL_READINESS",
+        "product": "AIOS Codex Unlimited",
+        "releaseVersion": "RC25",
+        "headline": "Codex sem limites. Desenvolvimento sem interrupcoes.",
+        "productUnit": "codex_sessions",
+        "userVisibleMeter": "none",
+        "deliverableState": "functional_release_candidate" if ready_for_local_demo else "needs_local_fixes",
+        "productionState": "production_ready" if ready_for_production else "blocked_until_official_runtime_binding",
+        "readyForLocalDemo": ready_for_local_demo,
+        "readyForPublicPackage": ready_for_public_package,
+        "readyForProduction": ready_for_production,
+        "readinessScore": readiness_score,
+        "criteria": criteria,
+        "blockingItems": blocking_items,
+        "runtime": {
+            "provider": sandbox_state.get("provider", "openai_codex"),
+            "canInvokeLiveRuntime": bool(sandbox_state.get("canInvokeLiveRuntime")),
+            "missingBinding": sandbox_state.get("missing", []),
+            "brokerRecommendedProvider": broker_state.get("recommendedProvider"),
+        },
+        "package": {
+            "script": "scripts/rc25-package.ps1",
+            "outputPath": r"C:\AIOS\aios-codex-unlimited-enterprise-v2-RC25-FINAL.zip",
+            "manifest": windows_release_response(release) if release else None,
+            "includesPrivateCodexArtifacts": bool(release.includes_private_codex_artifacts) if release else False,
+            "requiredScans": [
+                "contract-authority.ps1 verify",
+                "contract-docs-audit.ps1",
+                "public-repo-safety-audit.ps1",
+                "secret-hygiene-check.ps1 -WriteReport",
+                "restricted-package-scan.ps1",
+            ],
+        },
+        "nextActions": [
+            "Run scripts/rc25-package.ps1 to create a scanned release ZIP.",
+            "Use local demo mode until official runtime binding is active.",
+            "When official endpoint, service credential, tenant, sandbox id, Vault/KMS and live flag are present, rerun runtime-binding-status and final readiness.",
+        ],
+        "secretsExposed": False,
+    }
+
+
 def legacy_aios_summary() -> dict:
     return {
         "sourceProjectPath": r"C:\Users\dg71\Documents\AIOS-15-Fase3-Corrigido",
@@ -2564,6 +2668,24 @@ def windows_release_manifest(db: Session = Depends(get_db), user: User = Depends
     if not item:
         raise HTTPException(status_code=404, detail="Windows release artifact not found")
     return windows_release_response(item)
+
+
+@app.get("/release/final-readiness")
+def release_final_readiness(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    result = final_readiness_state(db)
+    audit(
+        db,
+        user,
+        "release.final_readiness",
+        result["releaseVersion"],
+        {
+            "readyForLocalDemo": result["readyForLocalDemo"],
+            "readyForPublicPackage": result["readyForPublicPackage"],
+            "readyForProduction": result["readyForProduction"],
+            "blockingItems": result["blockingItems"],
+        },
+    )
+    return result
 
 
 @app.get("/official-integration/readiness")

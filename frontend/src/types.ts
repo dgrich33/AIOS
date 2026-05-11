@@ -557,6 +557,43 @@ export type WindowsReleaseManifest = {
   files: string[];
 };
 
+export type FinalReadiness = {
+  phase: string;
+  product: string;
+  releaseVersion: string;
+  headline: string;
+  productUnit: string;
+  userVisibleMeter: string;
+  deliverableState: string;
+  productionState: string;
+  readyForLocalDemo: boolean;
+  readyForPublicPackage: boolean;
+  readyForProduction: boolean;
+  readinessScore: number;
+  criteria: Array<{
+    id: string;
+    label: string;
+    status: string;
+    evidence: string;
+  }>;
+  blockingItems: string[];
+  runtime: {
+    provider: string;
+    canInvokeLiveRuntime: boolean;
+    missingBinding: string[];
+    brokerRecommendedProvider?: string;
+  };
+  package: {
+    script: string;
+    outputPath: string;
+    manifest?: WindowsReleaseManifest | null;
+    includesPrivateCodexArtifacts: boolean;
+    requiredScans: string[];
+  };
+  nextActions: string[];
+  secretsExposed: boolean;
+};
+
 export type OfficialIntegrationReadiness = {
   phase: string;
   contractAuthority: {

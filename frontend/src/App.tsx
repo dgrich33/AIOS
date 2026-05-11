@@ -34,6 +34,7 @@ import type {
   ControlPlaneStatus,
   ContextIndexInfo,
   Entitlement,
+  FinalReadiness,
   Handoff,
   IdentityProfile,
   IntegrationGuardrails,
@@ -166,6 +167,7 @@ type PanelState = {
   contextQuery?: Record<string, unknown>;
   skillStore: SkillStoreItem[];
   windowsRelease?: WindowsReleaseManifest;
+  finalReadiness?: FinalReadiness;
   secureBridgeResult?: Record<string, unknown>;
   officialReadiness?: OfficialIntegrationReadiness;
   officialAdapterContract?: Record<string, unknown>;
@@ -341,6 +343,7 @@ export function App() {
         secureRuntimeBridge,
         skillStore,
         windowsRelease,
+        finalReadiness,
         officialReadiness,
         officialSandboxSecurity,
         officialSandboxActivation,
@@ -372,6 +375,7 @@ export function App() {
         api.secureRuntimeBridge(),
         api.skillStore(),
         api.windowsReleaseManifest(),
+        api.finalReadiness(),
         api.officialIntegrationReadiness(),
         api.officialSandboxSecurityCheck(),
         api.officialSandboxActivation(),
@@ -405,6 +409,7 @@ export function App() {
         secureRuntimeBridge,
         skillStore,
         windowsRelease,
+        finalReadiness,
         officialReadiness,
         officialSandboxSecurity,
         officialSandboxActivation,
@@ -856,6 +861,12 @@ export function App() {
     );
     if (!officialDryRun) return;
     setState((current) => ({ ...current, officialDryRun }));
+  }
+
+  async function loadFinalReadiness() {
+    const finalReadiness = await runAction('final-readiness', () => api.finalReadiness());
+    if (!finalReadiness) return;
+    setState((current) => ({ ...current, finalReadiness }));
   }
 
   async function checkOfficialSandbox() {
@@ -1524,6 +1535,40 @@ export function App() {
           <article className="detail-panel product-core-panel">
             <div className="panel-heading">
               <div>
+                <h2>Final Readiness RC25</h2>
+                <p>{state.finalReadiness?.deliverableState ?? 'functional_release_candidate'}</p>
+              </div>
+              <span className={state.finalReadiness?.readyForProduction ? 'status-pill' : 'status-pill warn'}>
+                {state.finalReadiness?.readinessScore ?? 0}%
+              </span>
+            </div>
+            <dl className="detail-list">
+              <dt>Demo local</dt>
+              <dd>{state.finalReadiness?.readyForLocalDemo ? 'pronta' : 'pendente'}</dd>
+              <dt>Pacote publico</dt>
+              <dd>{state.finalReadiness?.readyForPublicPackage ? 'pronto com scan' : 'pendente'}</dd>
+              <dt>Producao real</dt>
+              <dd>{state.finalReadiness?.readyForProduction ? 'pronta' : state.finalReadiness?.productionState ?? 'blocked_until_official_runtime_binding'}</dd>
+              <dt>Pacote</dt>
+              <dd>{state.finalReadiness?.package.script ?? 'scripts/rc25-package.ps1'}</dd>
+            </dl>
+            <div className="scroll-list compact">
+              {(state.finalReadiness?.criteria ?? []).map((item) => (
+                <div className="snapshot-row" key={item.id}>
+                  <strong>{item.label}</strong>
+                  <span>{item.status} / {item.evidence}</span>
+                </div>
+              ))}
+            </div>
+            <button className="secondary-button full" onClick={loadFinalReadiness} disabled={Boolean(actionLoading)}>
+              <RefreshCcw size={17} />
+              Atualizar Readiness Final
+            </button>
+          </article>
+
+          <article className="detail-panel product-core-panel">
+            <div className="panel-heading">
+              <div>
                 <h2>Official Integration</h2>
                 <p>{state.officialReadiness?.phase ?? 'RC4_OFFICIAL_INTEGRATION_READINESS'}</p>
               </div>
@@ -1831,7 +1876,7 @@ export function App() {
               <h2>Runtime Adapter</h2>
               <span>local</span>
             </div>
-            <JsonPreview value={state.approvalGateResult ?? state.runtimeBrokerInvokeResult ?? state.runtimeModelDiscovery ?? state.restrictedAccessLogResult ?? state.puterRuntimeResult ?? state.officialSandboxActivateResult ?? state.officialSandboxActivation ?? state.officialSandboxSecurity ?? state.officialDryRun ?? state.officialAdapterContract ?? state.secureBridgeResult ?? state.contextQuery ?? state.runtimeInvokeResult ?? state.lastRun ?? state.lastSkill ?? state.lastJob ?? state.abuse ?? state.workbench?.runtimeAdapter ?? state.productManifest ?? state.workbench ?? { message: 'Execute uma acao para ver o resultado.' }} />
+            <JsonPreview value={state.finalReadiness ?? state.approvalGateResult ?? state.runtimeBrokerInvokeResult ?? state.runtimeModelDiscovery ?? state.restrictedAccessLogResult ?? state.puterRuntimeResult ?? state.officialSandboxActivateResult ?? state.officialSandboxActivation ?? state.officialSandboxSecurity ?? state.officialDryRun ?? state.officialAdapterContract ?? state.secureBridgeResult ?? state.contextQuery ?? state.runtimeInvokeResult ?? state.lastRun ?? state.lastSkill ?? state.lastJob ?? state.abuse ?? state.workbench?.runtimeAdapter ?? state.productManifest ?? state.workbench ?? { message: 'Execute uma acao para ver o resultado.' }} />
           </article>
         </section>
       </main>
