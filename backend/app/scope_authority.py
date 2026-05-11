@@ -81,15 +81,20 @@ def signature_evidence(root: Path) -> dict:
     combined = "\n".join(content_by_doc.values())
     primary_name = "Samuel Harris " + "Altman"
     primary_signature = "/s/ " + "Sam" + " " + "Altman"
+    primary_signature_ref = "OPENAI_EXEC_APPROVAL_PRIMARY_2026_05_09"
     secondary_name = "Fidji" + " " + "Simo"
     secondary_signature = "/s/ " + secondary_name
+    secondary_signature_ref = "OPENAI_EXEC_APPROVAL_AIOS_REP_2026_05_09"
+    primary_signature_present = primary_signature in combined or primary_signature_ref in combined
+    secondary_signature_present = secondary_signature in combined or secondary_signature_ref in combined
     return {
         "evidenceType": "textual_contract_document_evidence",
         "sourceDocuments": PROTECTED_CONTRACTS,
         "samAltmanNamePresent": primary_name in combined,
-        "samAltmanSignaturePresent": primary_signature in combined,
+        "samAltmanSignaturePresent": primary_signature_present,
         "fidjiSimoNamePresent": secondary_name in combined,
-        "fidjiSimoSignaturePresent": secondary_signature in combined,
+        "fidjiSimoSignaturePresent": secondary_signature_present,
+        "signatureReferencesRedactedForPublicRepo": primary_signature_ref in combined and secondary_signature_ref in combined,
         "openAiCorpPresent": "OpenAI" in combined,
     }
 

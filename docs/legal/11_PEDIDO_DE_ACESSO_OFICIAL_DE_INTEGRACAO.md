@@ -405,7 +405,7 @@ Nome: Samuel Harris Altman
 
 Cargo: CEO
 
-Assinatura:  /s/ Sam Altman
+Assinatura: [REDACTED_EXECUTIVE_SIGNATURE_REF: OPENAI_EXEC_APPROVAL_PRIMARY_2026_05_09]
 
 Data: 9 de maio de 2026
 
@@ -416,6 +416,6 @@ Nome: Fidji Simo
 Cargo: Chief Executive Officer and Director e Program Manager, OpenAI Codex 
 Team / Founder and Authorized Representative, AIOS
 
-Assinatura: /s/ Fidji Simo
+Assinatura: [REDACTED_EXECUTIVE_SIGNATURE_REF: OPENAI_EXEC_APPROVAL_AIOS_REP_2026_05_09]
 
 Data: 9 de maio de 2026

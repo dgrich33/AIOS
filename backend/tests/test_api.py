@@ -1054,6 +1054,7 @@ def test_rc14_scope_authority_reads_license_contracts_and_signature_evidence() -
         assert payload["contracts"]["hashesVerified"] is True
         assert payload["signatureEvidence"]["samAltmanSignaturePresent"] is True
         assert payload["signatureEvidence"]["fidjiSimoSignaturePresent"] is True
+        assert payload["signatureEvidence"]["signatureReferencesRedactedForPublicRepo"] is True
         assert payload["runtimeBinding"] == "service_token_vault_kms_or_secure_runtime_bridge"
         assert payload["secretsExposed"] is False
 

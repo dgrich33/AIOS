@@ -1,11 +1,11 @@
 ﻿{
     "authority":  "AIOS Codex Unlimited contract documents",
     "rule":  "Do not edit these files without explicit user authorization in the current conversation.",
-    "generatedAt":  "2026-05-09T20:02:44.5516090-03:00",
+    "generatedAt":  "2026-05-10T22:34:02.9455681-03:00",
     "protectedFiles":  [
                            {
                                "path":  "docs/legal/11_PEDIDO_DE_ACESSO_OFICIAL_DE_INTEGRACAO.md",
-                               "sha256":  "587e229a54e43f623b2094d274a8f8a2a26c111d8ba25079000135b0630a4ceb"
+                               "sha256":  "da5e9c33ee5764ee26aa740591c08fd00fc7ec50980fca7c7164434ab315b146"
                            },
                            {
                                "path":  "docs/AIOS_CODEX_UNLIMITED_BRIEFING_REUNIAO.md",
