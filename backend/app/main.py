@@ -951,6 +951,69 @@ def openai_model_discovery_security_state() -> dict:
     }
 
 
+def codex_delegated_auth_status_state() -> dict:
+    repo_root = Path(__file__).resolve().parents[2]
+    codex_home = Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex")).expanduser()
+    auth_file = codex_home / "auth.json"
+    auth_file_present = auth_file.exists()
+
+    try:
+        auth_file.resolve(strict=False).relative_to(repo_root.resolve(strict=False))
+        auth_file_in_repo = True
+    except ValueError:
+        auth_file_in_repo = False
+
+    auth_state = (
+        "blocked_auth_file_inside_repo"
+        if auth_file_present and auth_file_in_repo
+        else ("codex_managed_auth_available_for_validation" if auth_file_present else "awaiting_codex_sign_in")
+    )
+
+    return {
+        "phase": "RC23_CODEX_DELEGATED_AUTH_BOUNDARY",
+        "provider": "codex_delegated",
+        "authMode": "chatgpt_managed",
+        "authState": auth_state,
+        "authFilePresent": auth_file_present,
+        "authFileLocation": "%CODEX_HOME%\\auth.json",
+        "authFileInsideRepository": auth_file_in_repo,
+        "authJsonManagedByAIOS": False,
+        "authJsonContentRead": False,
+        "authJsonCopiedBetweenMachines": False,
+        "apiKeyStoredByAIOS": False,
+        "tokenValuesExposed": False,
+        "secretsExposed": False,
+        "frontendExposureAllowed": False,
+        "logsExposureAllowed": False,
+        "canInvokeLiveRuntime": False,
+        "readyForEnterpriseValidation": auth_file_present and not auth_file_in_repo,
+        "claimBoundary": {
+            "canInvokeLiveRuntime": False,
+            "message": "Auth presence does not activate live runtime; it only confirms the local Codex-managed sign-in boundary can be validated.",
+        },
+        "blockedOperations": [
+            "read_auth_json_contents",
+            "copy_auth_json_between_machines",
+            "commit_auth_json",
+            "paste_auth_json_in_chat_or_ticket",
+            "use_auth_json_for_unlimited_bypass",
+            "proxy_unofficial_oauth",
+        ],
+        "requiredControls": [
+            "Codex owns ChatGPT-managed authentication",
+            "AIOS stores no OpenAI Platform API key for this provider",
+            "auth.json remains outside repository and packages",
+            "secret hygiene check passes before push or package",
+            "runtime broker keeps canInvokeLiveRuntime false until official binding is active",
+        ],
+        "nextSteps": [
+            "Run codex login through the official Codex client when delegated auth validation is needed",
+            "Keep auth.json in CODEX_HOME or the OS credential store, never in this repository",
+            "Use OfficialCodexRuntimeAdapter or Codex app-server validation without exposing token values",
+        ],
+    }
+
+
 RUNTIME_BROKER_PROVIDER_ORDER = [
     "official_codex_runtime",
     "codex_delegated",
@@ -2472,6 +2535,13 @@ def official_integration_credentials_status(user: User = Depends(get_current_use
         "frontendExposureAllowed": False,
         "logsExposureAllowed": False,
     }
+
+
+@app.get("/codex/delegated-auth/status")
+def codex_delegated_auth_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    status = codex_delegated_auth_status_state()
+    audit(db, user, "codex.delegated_auth.status", status["authState"], {"secretsExposed": False, "authJsonContentRead": False})
+    return status
 
 
 @app.post("/official-integration/adapter/dry-run")

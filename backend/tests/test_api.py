@@ -832,6 +832,35 @@ def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatc
         get_settings.cache_clear()
 
 
+def test_rc23_codex_delegated_auth_status_never_reads_or_exposes_auth_json(monkeypatch, tmp_path) -> None:
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    auth_file = codex_home / "auth.json"
+    auth_file.write_text('{"auth_mode":"chatgpt","tokens":{"access_token":"secret-value"}}', encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+
+        response = client.get("/codex/delegated-auth/status", headers=headers)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["phase"] == "RC23_CODEX_DELEGATED_AUTH_BOUNDARY"
+        assert payload["provider"] == "codex_delegated"
+        assert payload["authMode"] == "chatgpt_managed"
+        assert payload["authFilePresent"] is True
+        assert payload["authJsonManagedByAIOS"] is False
+        assert payload["authJsonContentRead"] is False
+        assert payload["apiKeyStoredByAIOS"] is False
+        assert payload["tokenValuesExposed"] is False
+        assert payload["secretsExposed"] is False
+        assert payload["canInvokeLiveRuntime"] is False
+        assert payload["claimBoundary"]["message"].startswith("Auth presence does not activate")
+        assert "read_auth_json_contents" in payload["blockedOperations"]
+        assert "secret-value" not in str(payload)
+        assert str(auth_file) not in str(payload)
+
+
 def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(monkeypatch) -> None:
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")

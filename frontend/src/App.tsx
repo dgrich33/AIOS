@@ -26,6 +26,7 @@ import { useApi } from './api';
 import type {
   CodexModelInfo,
   CodexPlanInfo,
+  CodexDelegatedAuthStatus,
   CodexProductManifest,
   CodexSession,
   ControlPlaneStatus,
@@ -149,6 +150,7 @@ type PanelState = {
   runtimeBrokerStatus?: RuntimeBrokerStatus;
   runtimeBrokerExplanation?: RuntimeBrokerExplanation;
   runtimeBrokerInvokeResult?: Record<string, unknown>;
+  codexDelegatedAuth?: CodexDelegatedAuthStatus;
   noCostProviders: NoDeveloperCostProvider[];
   noCostRecommendation?: NoDeveloperCostRecommendation;
   puterRuntimeResult?: Record<string, unknown>;
@@ -323,6 +325,7 @@ export function App() {
         runtimeBrokerProviders,
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
+        codexDelegatedAuth,
         noCostProvidersCatalog,
         noCostRecommendation,
         integrationGuardrails,
@@ -351,6 +354,7 @@ export function App() {
         api.runtimeBrokerProviders(),
         api.runtimeBrokerStatus(),
         api.runtimeBrokerExplain(),
+        api.codexDelegatedAuthStatus(),
         api.noDeveloperCostProviders(),
         api.noDeveloperCostRecommendation(),
         api.integrationGuardrails(),
@@ -381,6 +385,7 @@ export function App() {
         runtimeBrokerProviders: runtimeBrokerProviders.providers,
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
+        codexDelegatedAuth,
         noCostProviders: noCostProvidersCatalog.providers,
         noCostRecommendation,
         integrationGuardrails,
@@ -655,6 +660,12 @@ export function App() {
     setState((current) => ({ ...current, runtimeBrokerInvokeResult }));
     await loadWorkbench(session.id);
     await refresh();
+  }
+
+  async function loadCodexDelegatedAuthStatus() {
+    const codexDelegatedAuth = await runAction('codex-delegated-auth', () => api.codexDelegatedAuthStatus());
+    if (!codexDelegatedAuth) return;
+    setState((current) => ({ ...current, codexDelegatedAuth }));
   }
 
   async function loadNoDeveloperCostProviders() {
@@ -1217,6 +1228,34 @@ export function App() {
             <p className="muted">
               Roteia provider oficial, Codex delegado, AIOS Cloud, self-hosted, demo e fallback sem falso claim de runtime vivo.
             </p>
+          </article>
+
+          <article className="detail-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Codex Auth RC23</h2>
+                <p>{state.codexDelegatedAuth?.claimBoundary?.message ?? 'Auth delegado por Codex/ChatGPT sem leitura de token pelo AIOS.'}</p>
+              </div>
+              <span className={state.codexDelegatedAuth?.readyForEnterpriseValidation ? 'status-pill' : 'status-pill warn'}>
+                {state.codexDelegatedAuth?.authState ?? 'aguardando'}
+              </span>
+            </div>
+            <dl className="detail-list">
+              <dt>Modo</dt>
+              <dd>{state.codexDelegatedAuth?.authMode ?? 'chatgpt_managed'}</dd>
+              <dt>auth.json</dt>
+              <dd>{state.codexDelegatedAuth?.authJsonContentRead ? 'auth.json lido' : 'auth.json nao lido'}</dd>
+              <dt>API key</dt>
+              <dd>{state.codexDelegatedAuth?.apiKeyStoredByAIOS ? 'armazenada pelo AIOS' : 'API key nao armazenada pelo AIOS'}</dd>
+              <dt>Local seguro</dt>
+              <dd>{state.codexDelegatedAuth?.authFileInsideRepository ? 'bloqueado dentro do repo' : state.codexDelegatedAuth?.authFileLocation ?? '%CODEX_HOME%\\auth.json'}</dd>
+              <dt>Live runtime</dt>
+              <dd>{state.codexDelegatedAuth?.canInvokeLiveRuntime ? 'ativo' : 'nao altera canInvokeLiveRuntime'}</dd>
+            </dl>
+            <button className="secondary-button full" onClick={loadCodexDelegatedAuthStatus} disabled={Boolean(actionLoading)}>
+              <ShieldCheck size={17} />
+              Verificar Auth Delegado
+            </button>
           </article>
 
           <article className="detail-panel">

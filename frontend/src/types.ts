@@ -282,6 +282,33 @@ export type RuntimeBrokerExplanation = {
   secretsExposed: boolean;
 };
 
+export type CodexDelegatedAuthStatus = {
+  phase: string;
+  provider: string;
+  authMode: string;
+  authState: string;
+  authFilePresent: boolean;
+  authFileLocation: string;
+  authFileInsideRepository: boolean;
+  authJsonManagedByAIOS: boolean;
+  authJsonContentRead: boolean;
+  authJsonCopiedBetweenMachines: boolean;
+  apiKeyStoredByAIOS: boolean;
+  tokenValuesExposed: boolean;
+  secretsExposed: boolean;
+  frontendExposureAllowed: boolean;
+  logsExposureAllowed: boolean;
+  canInvokeLiveRuntime: boolean;
+  readyForEnterpriseValidation: boolean;
+  claimBoundary: {
+    canInvokeLiveRuntime: boolean;
+    message: string;
+  };
+  blockedOperations: string[];
+  requiredControls: string[];
+  nextSteps: string[];
+};
+
 export type LicenseStatus = {
   phase: string;
   status: string;

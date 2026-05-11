@@ -32,6 +32,26 @@ Resultado esperado:
 }
 ```
 
+## Status no Workbench/API
+O RC23 adiciona o endpoint:
+
+```http
+GET /codex/delegated-auth/status
+```
+
+Esse endpoint pode indicar se existe `auth.json` em `%CODEX_HOME%`, mas nao abre o arquivo e nao retorna caminho absoluto do usuario. O retorno esperado deve manter:
+
+```json
+{
+  "authJsonManagedByAIOS": false,
+  "authJsonContentRead": false,
+  "apiKeyStoredByAIOS": false,
+  "tokenValuesExposed": false,
+  "canInvokeLiveRuntime": false,
+  "secretsExposed": false
+}
+```
+
 ## Resposta a Incidente
 1. Revogue ou rotacione a credencial afetada.
 2. Remova o arquivo do Git e dos artefatos publicados.

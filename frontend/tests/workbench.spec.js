@@ -35,6 +35,9 @@ test('logs in and uses Codex Workbench session controls', async ({ page }) => {
   await expect(page.getByText('Provider explainability').first()).toBeVisible();
   await expect(page.getByText('official_codex_runtime').first()).toBeVisible();
   await expect(page.getByText('controlled_simulator').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Codex Auth RC23' })).toBeVisible();
+  await expect(page.getByText('auth.json nao lido').first()).toBeVisible();
+  await expect(page.getByText('API key nao armazenada pelo AIOS').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No Developer Cost' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Puter User-Pays/i })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Secure Runtime Bridge' })).toBeVisible();

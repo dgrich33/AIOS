@@ -2,6 +2,7 @@ import { createContext, ReactNode, useContext, useMemo, useState } from 'react';
 import type {
   CodexModelInfo,
   CodexPlanInfo,
+  CodexDelegatedAuthStatus,
   CodexProductManifest,
   CodexSession,
   ControlPlaneStatus,
@@ -62,6 +63,7 @@ type ApiContextValue = {
   runtimeBrokerStatus: () => Promise<RuntimeBrokerStatus>;
   runtimeBrokerExplain: (provider?: string) => Promise<RuntimeBrokerExplanation>;
   runtimeBrokerInvoke: (sessionId: string, objective: string, provider?: string) => Promise<Record<string, unknown>>;
+  codexDelegatedAuthStatus: () => Promise<CodexDelegatedAuthStatus>;
   noDeveloperCostProviders: () => Promise<NoDeveloperCostProviderCatalog>;
   noDeveloperCostRecommendation: () => Promise<NoDeveloperCostRecommendation>;
   languageEvaluate: (text: string) => Promise<LanguageEvaluation>;
@@ -190,6 +192,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       runtimeBrokerExplain: (provider = 'auto') => request(`/runtime/broker/explain?provider=${encodeURIComponent(provider)}`),
       runtimeBrokerInvoke: (sessionId, objective, provider = 'auto') =>
         request('/runtime/broker/invoke', { method: 'POST', body: JSON.stringify({ sessionId, objective, provider, intelligenceMode: 'aios_cognitive_runtime_mesh' }) }),
+      codexDelegatedAuthStatus: () => request('/codex/delegated-auth/status'),
       noDeveloperCostProviders: () => request('/runtime/no-developer-cost/providers'),
       noDeveloperCostRecommendation: () => request('/runtime/no-developer-cost/recommendation'),
       languageEvaluate: (text) =>
