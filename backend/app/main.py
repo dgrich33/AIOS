@@ -16,6 +16,7 @@ from .config import get_settings
 from .db import SessionLocal, get_db, init_db
 from .license_manager import license_status
 from .models import (
+    ApprovalGateRequest,
     AuditLog,
     CodexModel,
     CodexPlan,
@@ -202,6 +203,19 @@ class RestrictedAccessLogRequest(BaseModel):
     artifactHash: str = ""
     justification: str = ""
     result: str = "recorded"
+
+
+class CreateApprovalGateRequest(BaseModel):
+    sessionId: str | None = None
+    operation: str
+    target: str = ""
+    reason: str
+    preview: dict = Field(default_factory=dict)
+
+
+class ApprovalGateDecisionRequest(BaseModel):
+    decision: str = Field(pattern="^(approved|rejected|cancelled)$")
+    reason: str = ""
 
 
 class CreateSandboxDataProfileRequest(BaseModel):
@@ -554,6 +568,84 @@ def restricted_access_response(item: RestrictedAccessRequest) -> dict:
         "expired": expired,
         "activeApproval": item.status == "approved" and not expired,
         "createdAt": item.created_at.isoformat(),
+    }
+
+
+APPROVAL_GATE_SENSITIVE_OPERATIONS = [
+    "shell_command",
+    "apply_patch",
+    "workspace_write",
+    "dependency_install",
+    "git_push",
+    "mcp_tool_execute",
+    "runtime_patch",
+    "delete_file",
+    "delete_directory",
+    "external_network_call",
+]
+
+APPROVAL_GATE_BLOCKED_OPERATIONS = [
+    "read_auth_json_contents",
+    "copy_auth_json_between_machines",
+    "expose_service_token_to_frontend",
+    "commit_secret_to_repository",
+    "auto_execute_without_human_approval",
+]
+
+
+def approval_gate_policy() -> dict:
+    return {
+        "phase": "RC24_APPROVAL_GATE",
+        "productUnit": "codex_sessions",
+        "mode": "human_approval_required",
+        "requiresHumanApproval": True,
+        "autoExecuteAllowed": False,
+        "executionSurface": "operator_manual_only_after_decision",
+        "sensitiveOperations": APPROVAL_GATE_SENSITIVE_OPERATIONS,
+        "blockedOperations": APPROVAL_GATE_BLOCKED_OPERATIONS,
+        "decisionStates": ["pending", "approved", "rejected", "cancelled"],
+        "auditEvents": ["approval_gate.requested", "approval_gate.approved", "approval_gate.rejected", "approval_gate.cancelled"],
+        "secretsExposed": False,
+    }
+
+
+def approval_gate_risk(operation: str, preview: dict) -> tuple[str, int]:
+    operation_id = operation.strip().lower()
+    preview_text = json.dumps(preview, sort_keys=True).lower()
+    critical_operations = {"delete_file", "delete_directory", "runtime_patch", "external_network_call"}
+    high_operations = {"shell_command", "apply_patch", "workspace_write", "dependency_install", "git_push", "mcp_tool_execute"}
+    critical_markers = ["remove-item", "rm -rf", "format ", "del /f", "vault", "auth.json"]
+    high_markers = ["api_key", "token", "secret", "password", "npm install", "pip install"]
+    if operation_id in critical_operations or any(marker in preview_text for marker in critical_markers):
+        return "critical", 95
+    if operation_id in high_operations or any(marker in preview_text for marker in high_markers):
+        return "high", 80
+    if operation_id in APPROVAL_GATE_SENSITIVE_OPERATIONS:
+        return "medium", 60
+    return "medium", 50
+
+
+def approval_gate_response(item: ApprovalGateRequest) -> dict:
+    return {
+        "phase": "RC24_APPROVAL_GATE",
+        "id": item.id,
+        "sessionId": item.session_id,
+        "operation": item.operation,
+        "target": item.target,
+        "reason": item.reason,
+        "preview": json.loads(item.preview or "{}"),
+        "riskLevel": item.risk_level,
+        "riskScore": item.risk_score,
+        "status": item.status,
+        "approvalRequired": True,
+        "autoExecuteAllowed": False,
+        "executionPerformed": False,
+        "requestedByUserId": item.requested_by_user_id,
+        "decisionReason": item.decision_reason,
+        "decidedByUserId": item.decided_by_user_id,
+        "decidedAt": item.decided_at.isoformat() if item.decided_at else None,
+        "createdAt": item.created_at.isoformat(),
+        "secretsExposed": False,
     }
 
 
@@ -2659,6 +2751,101 @@ def create_official_sandbox_data_profile(
         },
     )
     return sandbox_data_profile_response(item)
+
+
+@app.get("/approval-gate/policy")
+def get_approval_gate_policy(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    policy = approval_gate_policy()
+    pending_count = db.query(ApprovalGateRequest).filter(ApprovalGateRequest.status == "pending").count()
+    policy["pendingRequests"] = pending_count
+    audit(db, user, "approval_gate.policy", "rc24", {"pendingRequests": pending_count})
+    return policy
+
+
+@app.post("/approval-gate/requests")
+def create_approval_gate_request(payload: CreateApprovalGateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    if payload.sessionId:
+        get_owned_session(db, user, payload.sessionId)
+    redacted_preview = redact(payload.preview)
+    risk_level, risk_score = approval_gate_risk(payload.operation, redacted_preview)
+    item = ApprovalGateRequest(
+        session_id=payload.sessionId,
+        requested_by_user_id=user.id,
+        operation=payload.operation,
+        target=redact(payload.target),
+        reason=redact(payload.reason),
+        preview=json.dumps(redacted_preview),
+        risk_level=risk_level,
+        risk_score=risk_score,
+        status="pending",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    audit(
+        db,
+        user,
+        "approval_gate.requested",
+        item.id,
+        {
+            "sessionId": item.session_id,
+            "operation": item.operation,
+            "riskLevel": item.risk_level,
+            "executionPerformed": False,
+            "autoExecuteAllowed": False,
+        },
+    )
+    return approval_gate_response(item)
+
+
+@app.get("/approval-gate/requests")
+def list_approval_gate_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict]:
+    items = (
+        db.query(ApprovalGateRequest)
+        .filter(ApprovalGateRequest.requested_by_user_id == user.id)
+        .order_by(ApprovalGateRequest.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return [approval_gate_response(item) for item in items]
+
+
+@app.patch("/approval-gate/requests/{request_id}/decision")
+def decide_approval_gate_request(
+    request_id: str,
+    payload: ApprovalGateDecisionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    item = (
+        db.query(ApprovalGateRequest)
+        .filter(ApprovalGateRequest.id == request_id, ApprovalGateRequest.requested_by_user_id == user.id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Approval gate request not found")
+    if item.status != "pending":
+        raise HTTPException(status_code=409, detail="Approval gate request already decided")
+    item.status = payload.decision
+    item.decision_reason = redact(payload.reason)
+    item.decided_by_user_id = user.id
+    item.decided_at = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+    audit(
+        db,
+        user,
+        f"approval_gate.{payload.decision}",
+        item.id,
+        {
+            "sessionId": item.session_id,
+            "operation": item.operation,
+            "riskLevel": item.risk_level,
+            "executionPerformed": False,
+            "autoExecuteAllowed": False,
+        },
+    )
+    return approval_gate_response(item)
 
 
 @app.post("/restricted-access/requests")

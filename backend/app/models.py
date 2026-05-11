@@ -234,6 +234,25 @@ class RestrictedAccessRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ApprovalGateRequest(Base):
+    __tablename__ = "approval_gate_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    requested_by_user_id: Mapped[str] = mapped_column(String(36), index=True)
+    operation: Mapped[str] = mapped_column(String(128), index=True)
+    target: Mapped[str] = mapped_column(String(1024), default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    preview: Mapped[str] = mapped_column(Text, default="{}")
+    risk_level: Mapped[str] = mapped_column(String(32), default="medium", index=True)
+    risk_score: Mapped[int] = mapped_column(Integer, default=50)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    decision_reason: Mapped[str] = mapped_column(Text, default="")
+    decided_by_user_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Tenant(Base):
     __tablename__ = "tenants"
 

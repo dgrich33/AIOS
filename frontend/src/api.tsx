@@ -1,5 +1,7 @@
 import { createContext, ReactNode, useContext, useMemo, useState } from 'react';
 import type {
+  ApprovalGatePolicy,
+  ApprovalGateRequest,
   CodexModelInfo,
   CodexPlanInfo,
   CodexDelegatedAuthStatus,
@@ -64,6 +66,10 @@ type ApiContextValue = {
   runtimeBrokerExplain: (provider?: string) => Promise<RuntimeBrokerExplanation>;
   runtimeBrokerInvoke: (sessionId: string, objective: string, provider?: string) => Promise<Record<string, unknown>>;
   codexDelegatedAuthStatus: () => Promise<CodexDelegatedAuthStatus>;
+  approvalGatePolicy: () => Promise<ApprovalGatePolicy>;
+  createApprovalGateRequest: (input: { sessionId?: string; operation: string; target?: string; reason: string; preview?: Record<string, unknown> }) => Promise<ApprovalGateRequest>;
+  listApprovalGateRequests: () => Promise<ApprovalGateRequest[]>;
+  decideApprovalGateRequest: (requestId: string, decision: 'approved' | 'rejected' | 'cancelled', reason: string) => Promise<ApprovalGateRequest>;
   noDeveloperCostProviders: () => Promise<NoDeveloperCostProviderCatalog>;
   noDeveloperCostRecommendation: () => Promise<NoDeveloperCostRecommendation>;
   languageEvaluate: (text: string) => Promise<LanguageEvaluation>;
@@ -193,6 +199,12 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       runtimeBrokerInvoke: (sessionId, objective, provider = 'auto') =>
         request('/runtime/broker/invoke', { method: 'POST', body: JSON.stringify({ sessionId, objective, provider, intelligenceMode: 'aios_cognitive_runtime_mesh' }) }),
       codexDelegatedAuthStatus: () => request('/codex/delegated-auth/status'),
+      approvalGatePolicy: () => request('/approval-gate/policy'),
+      createApprovalGateRequest: (input) =>
+        request('/approval-gate/requests', { method: 'POST', body: JSON.stringify(input) }),
+      listApprovalGateRequests: () => request('/approval-gate/requests'),
+      decideApprovalGateRequest: (requestId, decision, reason) =>
+        request(`/approval-gate/requests/${requestId}/decision`, { method: 'PATCH', body: JSON.stringify({ decision, reason }) }),
       noDeveloperCostProviders: () => request('/runtime/no-developer-cost/providers'),
       noDeveloperCostRecommendation: () => request('/runtime/no-developer-cost/recommendation'),
       languageEvaluate: (text) =>

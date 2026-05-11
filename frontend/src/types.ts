@@ -309,6 +309,43 @@ export type CodexDelegatedAuthStatus = {
   nextSteps: string[];
 };
 
+export type ApprovalGatePolicy = {
+  phase: string;
+  productUnit: string;
+  mode: string;
+  requiresHumanApproval: boolean;
+  autoExecuteAllowed: boolean;
+  executionSurface: string;
+  sensitiveOperations: string[];
+  blockedOperations: string[];
+  decisionStates: string[];
+  auditEvents: string[];
+  pendingRequests: number;
+  secretsExposed: boolean;
+};
+
+export type ApprovalGateRequest = {
+  phase: string;
+  id: string;
+  sessionId?: string | null;
+  operation: string;
+  target: string;
+  reason: string;
+  preview: Record<string, unknown>;
+  riskLevel: string;
+  riskScore: number;
+  status: string;
+  approvalRequired: boolean;
+  autoExecuteAllowed: boolean;
+  executionPerformed: boolean;
+  requestedByUserId: string;
+  decisionReason: string;
+  decidedByUserId?: string | null;
+  decidedAt?: string | null;
+  createdAt: string;
+  secretsExposed: boolean;
+};
+
 export type LicenseStatus = {
   phase: string;
   status: string;

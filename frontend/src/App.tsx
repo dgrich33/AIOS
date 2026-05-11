@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useApi } from './api';
 import type {
+  ApprovalGatePolicy,
+  ApprovalGateRequest,
   CodexModelInfo,
   CodexPlanInfo,
   CodexDelegatedAuthStatus,
@@ -151,6 +153,9 @@ type PanelState = {
   runtimeBrokerExplanation?: RuntimeBrokerExplanation;
   runtimeBrokerInvokeResult?: Record<string, unknown>;
   codexDelegatedAuth?: CodexDelegatedAuthStatus;
+  approvalGatePolicy?: ApprovalGatePolicy;
+  approvalGateRequests: ApprovalGateRequest[];
+  approvalGateResult?: ApprovalGateRequest;
   noCostProviders: NoDeveloperCostProvider[];
   noCostRecommendation?: NoDeveloperCostRecommendation;
   puterRuntimeResult?: Record<string, unknown>;
@@ -186,6 +191,7 @@ const initialState: PanelState = {
   handoffs: [],
   codexModels: [],
   runtimeBrokerProviders: [],
+  approvalGateRequests: [],
   noCostProviders: [],
   identityProfiles: [],
   skillStore: [],
@@ -326,6 +332,8 @@ export function App() {
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
         codexDelegatedAuth,
+        approvalGatePolicy,
+        approvalGateRequests,
         noCostProvidersCatalog,
         noCostRecommendation,
         integrationGuardrails,
@@ -355,6 +363,8 @@ export function App() {
         api.runtimeBrokerStatus(),
         api.runtimeBrokerExplain(),
         api.codexDelegatedAuthStatus(),
+        api.approvalGatePolicy(),
+        api.listApprovalGateRequests(),
         api.noDeveloperCostProviders(),
         api.noDeveloperCostRecommendation(),
         api.integrationGuardrails(),
@@ -386,6 +396,8 @@ export function App() {
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
         codexDelegatedAuth,
+        approvalGatePolicy,
+        approvalGateRequests,
         noCostProviders: noCostProvidersCatalog.providers,
         noCostRecommendation,
         integrationGuardrails,
@@ -666,6 +678,58 @@ export function App() {
     const codexDelegatedAuth = await runAction('codex-delegated-auth', () => api.codexDelegatedAuthStatus());
     if (!codexDelegatedAuth) return;
     setState((current) => ({ ...current, codexDelegatedAuth }));
+  }
+
+  async function createApprovalGateDemo() {
+    const approvalGateResult = await runAction('approval-gate-create', () =>
+      api.createApprovalGateRequest({
+        sessionId: selectedSession?.id,
+        operation: 'shell_command',
+        target: 'npm run build',
+        reason: 'Validar build somente apos aprovacao humana no Workbench.',
+        preview: {
+          command: 'npm run build',
+          execution: 'not_performed_by_aios',
+          files: ['frontend/src/App.tsx', 'backend/app/main.py'],
+        },
+      }),
+    );
+    if (!approvalGateResult) return;
+    const [approvalGatePolicy, approvalGateRequests] = await Promise.all([
+      api.approvalGatePolicy(),
+      api.listApprovalGateRequests(),
+    ]);
+    setState((current) => ({
+      ...current,
+      approvalGatePolicy,
+      approvalGateRequests,
+      approvalGateResult,
+    }));
+  }
+
+  async function decideLatestApprovalGateRequest(decision: 'approved' | 'rejected') {
+    const pending = state.approvalGateRequests.find((item) => item.status === 'pending');
+    if (!pending) return;
+    const approvalGateResult = await runAction(`approval-gate-${decision}`, () =>
+      api.decideApprovalGateRequest(
+        pending.id,
+        decision,
+        decision === 'approved'
+          ? 'Aprovado para execucao manual pelo operador; AIOS nao executou automaticamente.'
+          : 'Rejeitado pelo operador; nenhuma acao foi executada.',
+      ),
+    );
+    if (!approvalGateResult) return;
+    const [approvalGatePolicy, approvalGateRequests] = await Promise.all([
+      api.approvalGatePolicy(),
+      api.listApprovalGateRequests(),
+    ]);
+    setState((current) => ({
+      ...current,
+      approvalGatePolicy,
+      approvalGateRequests,
+      approvalGateResult,
+    }));
   }
 
   async function loadNoDeveloperCostProviders() {
@@ -1258,6 +1322,49 @@ export function App() {
             </button>
           </article>
 
+          <article className="detail-panel product-core-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Approval Gate RC24</h2>
+                <p>Controle humano para comandos, patches e tools sensiveis antes de qualquer execucao.</p>
+              </div>
+              <span className="status-pill">{state.approvalGatePolicy?.pendingRequests ?? state.approvalGateRequests.filter((item) => item.status === 'pending').length} pendente</span>
+            </div>
+            <dl className="detail-list">
+              <dt>Execucao automatica</dt>
+              <dd>{state.approvalGatePolicy?.autoExecuteAllowed ? 'permitida' : 'bloqueada'}</dd>
+              <dt>Aprovacao humana</dt>
+              <dd>{state.approvalGatePolicy?.requiresHumanApproval ? 'obrigatoria' : 'nao exigida'}</dd>
+              <dt>Ultimo risco</dt>
+              <dd>{state.approvalGateResult ? `${state.approvalGateResult.riskLevel} (${state.approvalGateResult.riskScore})` : 'aguardando demo'}</dd>
+              <dt>Executado pelo AIOS</dt>
+              <dd>{state.approvalGateResult?.executionPerformed ? 'sim' : 'nao'}</dd>
+            </dl>
+            <div className="scroll-list compact">
+              {state.approvalGateRequests.length === 0 ? <p className="empty">Nenhuma solicitacao de approval registrada nesta base local.</p> : null}
+              {state.approvalGateRequests.slice(0, 4).map((item) => (
+                <div className="snapshot-row" key={item.id}>
+                  <strong>{item.operation}</strong>
+                  <span>{item.status} / {item.riskLevel} / auto-execucao bloqueada</span>
+                </div>
+              ))}
+            </div>
+            <div className="stacked-actions two">
+              <button className="secondary-button full" onClick={createApprovalGateDemo} disabled={Boolean(actionLoading)}>
+                <ClipboardList size={17} />
+                Criar Approval Demo
+              </button>
+              <button className="secondary-button full" onClick={() => decideLatestApprovalGateRequest('approved')} disabled={Boolean(actionLoading) || !state.approvalGateRequests.some((item) => item.status === 'pending')}>
+                <CheckCircle2 size={17} />
+                Aprovar Demo
+              </button>
+              <button className="secondary-button full" onClick={() => decideLatestApprovalGateRequest('rejected')} disabled={Boolean(actionLoading) || !state.approvalGateRequests.some((item) => item.status === 'pending')}>
+                <ShieldCheck size={17} />
+                Rejeitar Demo
+              </button>
+            </div>
+          </article>
+
           <article className="detail-panel">
             <div className="panel-heading">
               <div>
@@ -1724,7 +1831,7 @@ export function App() {
               <h2>Runtime Adapter</h2>
               <span>local</span>
             </div>
-            <JsonPreview value={state.runtimeBrokerInvokeResult ?? state.runtimeModelDiscovery ?? state.restrictedAccessLogResult ?? state.puterRuntimeResult ?? state.officialSandboxActivateResult ?? state.officialSandboxActivation ?? state.officialSandboxSecurity ?? state.officialDryRun ?? state.officialAdapterContract ?? state.secureBridgeResult ?? state.contextQuery ?? state.runtimeInvokeResult ?? state.lastRun ?? state.lastSkill ?? state.lastJob ?? state.abuse ?? state.workbench?.runtimeAdapter ?? state.productManifest ?? state.workbench ?? { message: 'Execute uma acao para ver o resultado.' }} />
+            <JsonPreview value={state.approvalGateResult ?? state.runtimeBrokerInvokeResult ?? state.runtimeModelDiscovery ?? state.restrictedAccessLogResult ?? state.puterRuntimeResult ?? state.officialSandboxActivateResult ?? state.officialSandboxActivation ?? state.officialSandboxSecurity ?? state.officialDryRun ?? state.officialAdapterContract ?? state.secureBridgeResult ?? state.contextQuery ?? state.runtimeInvokeResult ?? state.lastRun ?? state.lastSkill ?? state.lastJob ?? state.abuse ?? state.workbench?.runtimeAdapter ?? state.productManifest ?? state.workbench ?? { message: 'Execute uma acao para ver o resultado.' }} />
           </article>
         </section>
       </main>

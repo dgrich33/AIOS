@@ -861,6 +861,67 @@ def test_rc23_codex_delegated_auth_status_never_reads_or_exposes_auth_json(monke
         assert str(auth_file) not in str(payload)
 
 
+def test_rc24_approval_gate_records_human_decision_without_executing_action() -> None:
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        session = client.post("/sessions", headers=headers, json={"title": "RC24 Approval", "objective": "Gate sensitive actions"}).json()
+
+        policy = client.get("/approval-gate/policy", headers=headers)
+        assert policy.status_code == 200
+        policy_payload = policy.json()
+        assert policy_payload["phase"] == "RC24_APPROVAL_GATE"
+        assert policy_payload["requiresHumanApproval"] is True
+        assert policy_payload["autoExecuteAllowed"] is False
+        assert "shell_command" in policy_payload["sensitiveOperations"]
+
+        created = client.post(
+            "/approval-gate/requests",
+            headers=headers,
+            json={
+                "sessionId": session["id"],
+                "operation": "shell_command",
+                "target": "npm run build",
+                "reason": "Validar build somente apos aprovacao humana.",
+                "preview": {
+                    "command": "set OPENAI_API_KEY=sk-secretsecretsecret && npm run build",
+                    "diff": "--- a/package.json\n+++ b/package.json\n",
+                },
+            },
+        )
+        assert created.status_code == 200
+        created_payload = created.json()
+        assert created_payload["phase"] == "RC24_APPROVAL_GATE"
+        assert created_payload["sessionId"] == session["id"]
+        assert created_payload["operation"] == "shell_command"
+        assert created_payload["status"] == "pending"
+        assert created_payload["riskLevel"] == "high"
+        assert created_payload["approvalRequired"] is True
+        assert created_payload["executionPerformed"] is False
+        assert created_payload["autoExecuteAllowed"] is False
+        assert "sk-secretsecretsecret" not in str(created_payload)
+        assert "[REDACTED]" in str(created_payload["preview"])
+
+        decided = client.patch(
+            f"/approval-gate/requests/{created_payload['id']}/decision",
+            headers=headers,
+            json={"decision": "approved", "reason": "Aprovado para execucao manual pelo operador."},
+        )
+        assert decided.status_code == 200
+        decided_payload = decided.json()
+        assert decided_payload["status"] == "approved"
+        assert decided_payload["decisionReason"] == "Aprovado para execucao manual pelo operador."
+        assert decided_payload["executionPerformed"] is False
+
+        requests = client.get("/approval-gate/requests", headers=headers)
+        assert requests.status_code == 200
+        assert requests.json()[0]["id"] == created_payload["id"]
+
+        audit_logs = client.get("/admin/audit-logs", headers=headers)
+        actions = {item["action"] for item in audit_logs.json()}
+        assert "approval_gate.requested" in actions
+        assert "approval_gate.approved" in actions
+
+
 def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(monkeypatch) -> None:
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")
