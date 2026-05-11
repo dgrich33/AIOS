@@ -110,7 +110,7 @@ $(if ($unignoredForbidden.Count) { ($unignoredForbidden | ForEach-Object { "- $(
 ## Notes
 
 - This check never reads, prints, copies, or exports secret values.
-- `auth.json` is treated like a password and must stay outside Git, logs, ZIP packages, and frontend code.
+- auth.json is treated like a password and must stay outside Git, logs, ZIP packages, and frontend code.
 - Real runtime credentials must be stored through DPAPI, Vault/KMS, or an approved secret manager.
 "@
     Set-Content -LiteralPath $reportPath -Value $body -Encoding UTF8
