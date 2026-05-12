@@ -1,9 +1,13 @@
 from datetime import datetime, timedelta
 import json
 import os
+import re
 import secrets
+import shutil
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
@@ -12,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .codex_adapter import AIOSCognitiveRuntimeMesh, OfficialCodexRuntimeAdapter, OllamaRuntimeAdapter, adapter
-from .config import get_settings
+from .config import get_private_env_status, get_settings, runtime_env_source
 from .db import SessionLocal, get_db, init_db
 from .license_manager import license_status
 from .models import (
@@ -139,6 +143,19 @@ class RuntimeBrokerInvokeRequest(BaseModel):
     provider: str = "auto"
     intelligenceMode: str = "aios_cognitive_runtime_mesh"
     model: str | None = None
+
+
+class CommunityRuntimeValidateRequest(BaseModel):
+    runSmokeTest: bool = False
+    prompt: str = "Responda em uma frase curta que o runtime privado esta ativo."
+    timeoutSeconds: int = 30
+
+
+class OwnerModelProbeRequest(BaseModel):
+    providerId: str = "auto"
+    modelId: str = "gpt-5.5"
+    prompt: str = "Responda exatamente: AIOS OWNER MODEL LAB OK"
+    timeoutSeconds: int = 120
 
 
 class ScopePreflightRequest(BaseModel):
@@ -342,6 +359,9 @@ CODEX_MODEL_DISCOVERY_CANDIDATES = [
     "gpt-5.5",
     "gpt-5.5-pro",
     "gpt-5.2-codex",
+    "gpt-oss-20b",
+    "openai/gpt-oss-20b",
+    "gpt-oss:20b",
     "gpt-5.1-codex",
     "gpt-5.1-codex-max",
     "gpt-5.1-codex-mini",
@@ -355,6 +375,9 @@ APPROVED_SCOPE_MODELS = {
     "codex-5.5-code-review",
     "codex-5.5-refactor",
     "gpt-5.2-codex",
+    "gpt-oss-20b",
+    "openai/gpt-oss-20b",
+    "gpt-oss:20b",
 }
 
 APPROVED_SCOPE_OPERATIONS = {
@@ -706,6 +729,7 @@ def final_readiness_state(db: Session) -> dict:
     local_criteria = [item for item in criteria if item["id"] != "official_runtime_binding"]
     ready_for_local_demo = all(item["status"] == "passed" for item in local_criteria)
     ready_for_public_package = ready_for_local_demo and bool(release and not release.includes_private_codex_artifacts)
+    broker_live = bool(broker_state.get("canInvokeLiveRuntime"))
     ready_for_production = ready_for_public_package and bool(sandbox_state.get("canInvokeLiveRuntime"))
     blocking_items = [item["id"] for item in criteria if item["status"] != "passed"]
     readiness_score = round((sum(1 for item in criteria if item["status"] == "passed") / len(criteria)) * 100)
@@ -718,7 +742,8 @@ def final_readiness_state(db: Session) -> dict:
         "productUnit": "codex_sessions",
         "userVisibleMeter": "none",
         "deliverableState": "functional_release_candidate" if ready_for_local_demo else "needs_local_fixes",
-        "productionState": "production_ready" if ready_for_production else "blocked_until_official_runtime_binding",
+        "productionState": "production_ready" if ready_for_production else "local_demo_live_official_production_blocked",
+        "localDemoRuntimeState": "live" if broker_live else "blocked",
         "readyForLocalDemo": ready_for_local_demo,
         "readyForPublicPackage": ready_for_public_package,
         "readyForProduction": ready_for_production,
@@ -727,7 +752,9 @@ def final_readiness_state(db: Session) -> dict:
         "blockingItems": blocking_items,
         "runtime": {
             "provider": sandbox_state.get("provider", "openai_codex"),
-            "canInvokeLiveRuntime": bool(sandbox_state.get("canInvokeLiveRuntime")),
+            "canInvokeLiveRuntime": broker_live,
+            "officialCanInvokeLiveRuntime": bool(sandbox_state.get("canInvokeLiveRuntime")),
+            "liveRuntimeProvider": broker_state.get("liveRuntimeProvider", ""),
             "missingBinding": sandbox_state.get("missing", []),
             "brokerRecommendedProvider": broker_state.get("recommendedProvider"),
         },
@@ -745,8 +772,8 @@ def final_readiness_state(db: Session) -> dict:
             ],
         },
         "nextActions": [
-            "Run scripts/rc25-package.ps1 to create a scanned release ZIP.",
-            "Use local demo mode until official runtime binding is active.",
+            "Run AIOS_RC34_ABRIR_PRODUCT_OWNER.bat to open the Product Owner local demo.",
+            "Use AIOS Native Runtime for local live demo without API key, auth.json, or external endpoint.",
             "When official endpoint, service credential, tenant, sandbox id, Vault/KMS and live flag are present, rerun runtime-binding-status and final readiness.",
         ],
         "secretsExposed": False,
@@ -1200,7 +1227,7 @@ def codex_delegated_auth_status_state() -> dict:
             "AIOS stores no OpenAI Platform API key for this provider",
             "auth.json remains outside repository and packages",
             "secret hygiene check passes before push or package",
-            "runtime broker keeps canInvokeLiveRuntime false until official binding is active",
+            "Codex delegated auth alone does not activate live runtime; AIOS Native and other validated providers have their own gates",
         ],
         "nextSteps": [
             "Run codex login through the official Codex client when delegated auth validation is needed",
@@ -1210,10 +1237,524 @@ def codex_delegated_auth_status_state() -> dict:
     }
 
 
+def env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def redacted_runtime_url(raw_url: str) -> str:
+    if not raw_url:
+        return ""
+    parsed = urlparse(raw_url)
+    netloc = parsed.netloc
+    if "@" in netloc:
+        netloc = netloc.split("@", 1)[1]
+    return urlunparse((parsed.scheme, netloc, parsed.path.rstrip("/"), "", "", ""))
+
+
+def community_runtime_config() -> dict:
+    configured_provider = (
+        os.getenv("AIOS_CHAT_PROVIDER")
+        or os.getenv("AIOS_RUNTIME_PROVIDER")
+        or os.getenv("AIOS_INFERENCE_PROVIDER")
+        or ""
+    ).strip().lower()
+    mode = (os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "local").strip().lower()
+    base_url = (
+        os.getenv("AIOS_COMMUNITY_RUNTIME_BASE_URL")
+        or (os.getenv("AIOS_INFERENCE_BASE_URL") if configured_provider == "community_wrapper_runtime" else "")
+        or ""
+    ).strip().rstrip("/")
+    supported_model_profiles = [
+        "gpt-oss-20b",
+        "qwen2.5-coder-1.5b",
+        "gpt-5.2-codex",
+        "gpt-4o",
+    ]
+    provider_model_aliases = [
+        "openai/gpt-oss-20b",
+        "gpt-oss:20b",
+        "gpt-oss-20b",
+        "qwen2.5-coder:1.5b",
+    ]
+    model_id = (
+        os.getenv("AIOS_COMMUNITY_RUNTIME_MODEL_ID")
+        or os.getenv("AIOS_INFERENCE_MODEL_ID")
+        or os.getenv("OPENAI_MODEL")
+        or "gpt-oss:20b"
+    ).strip()
+    api_key = (
+        os.getenv("AIOS_COMMUNITY_RUNTIME_API_KEY")
+        or os.getenv("AIOS_INFERENCE_API_KEY")
+        or ""
+    ).strip()
+    explicit_allow = env_truthy("AIOS_ALLOW_COMMUNITY_RUNTIME") or configured_provider == "community_wrapper_runtime"
+    local_or_presentation = mode in {"local_developer", "presentation", "local", "dev", "development"}
+    require_api_key = env_truthy("AIOS_COMMUNITY_RUNTIME_REQUIRE_API_KEY")
+    missing = []
+    if not explicit_allow:
+        missing.append("AIOS_ALLOW_COMMUNITY_RUNTIME=true or AIOS_CHAT_PROVIDER=community_wrapper_runtime")
+    if not local_or_presentation:
+        missing.append("AIOS_ENV=local_developer|presentation")
+    if not base_url:
+        missing.append("AIOS_COMMUNITY_RUNTIME_BASE_URL")
+    if not model_id:
+        missing.append("AIOS_COMMUNITY_RUNTIME_MODEL_ID")
+    if require_api_key and not api_key:
+        missing.append("AIOS_COMMUNITY_RUNTIME_API_KEY")
+    return {
+        "providerId": "community_wrapper_runtime",
+        "mode": mode,
+        "configuredProvider": configured_provider or "auto",
+        "baseUrl": base_url,
+        "baseUrlRedacted": redacted_runtime_url(base_url),
+        "modelId": model_id,
+        "credentialPresent": bool(api_key),
+        "credentialRequired": require_api_key,
+        "credentialSource": "AIOS_COMMUNITY_RUNTIME_API_KEY" if api_key else "",
+        "supportedModelProfiles": supported_model_profiles,
+        "providerModelAliases": provider_model_aliases,
+        "allowed": explicit_allow,
+        "localOrPresentation": local_or_presentation,
+        "missingRequirements": missing,
+        "ready": len(missing) == 0,
+        "privateEnv": get_private_env_status(),
+        "envSource": runtime_env_source(),
+        "secretsExposed": False,
+    }
+
+
+def community_runtime_status_payload() -> dict:
+    config = community_runtime_config()
+    ready = bool(config["ready"])
+    return {
+        "providerId": "community_wrapper_runtime",
+        "displayName": "Community Wrapper Runtime",
+        "category": "private_local_runtime",
+        "runtimeKind": "community_wrapper_runtime",
+        "status": "ready" if ready else "missing",
+        "active": ready,
+        "canInvokeLiveRuntime": ready,
+        "officialProduction": False,
+        "productionBlocked": True,
+        "productionBlockedReason": "Community wrapper is private/local live runtime, not official production binding.",
+        "baseUrlConfigured": bool(config["baseUrl"]),
+        "baseUrlRedacted": config["baseUrlRedacted"],
+        "modelId": config["modelId"],
+        "supportedModelProfiles": config["supportedModelProfiles"],
+        "providerModelAliases": config["providerModelAliases"],
+        "credentialPresent": config["credentialPresent"],
+        "credentialRequired": config["credentialRequired"],
+        "credentialSource": config["credentialSource"],
+        "missingRequirements": config["missingRequirements"],
+        "privateEnv": config["privateEnv"],
+        "validationSummary": {
+            "mode": config["mode"],
+            "allowed": config["allowed"],
+            "localOrPresentation": config["localOrPresentation"],
+            "endpoint": config["baseUrlRedacted"],
+            "credential": "present_redacted" if config["credentialPresent"] else "not_configured",
+        },
+        "secretsExposed": False,
+    }
+
+
+def openai_api_authorized_config() -> dict:
+    settings = get_settings()
+    mode = (os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "local").strip().lower()
+    allowed = env_truthy("AIOS_ALLOW_OPENAI_API_RUNTIME") or (os.getenv("AIOS_CHAT_PROVIDER", "").strip().lower() == "openai_api_authorized")
+    local_or_presentation = mode in {"local_developer", "presentation", "local", "dev", "development"}
+    candidate_models = ["gpt-4o", "gpt-5.2-codex", "gpt-5.5", "gpt-oss-20b"]
+    missing = []
+    if not allowed:
+        missing.append("AIOS_ALLOW_OPENAI_API_RUNTIME=true or AIOS_CHAT_PROVIDER=openai_api_authorized")
+    if not local_or_presentation:
+        missing.append("AIOS_ENV=local_developer|presentation")
+    if not settings.openai_base_url:
+        missing.append("OPENAI_BASE_URL")
+    if not settings.openai_api_key:
+        missing.append("OPENAI_API_KEY")
+    return {
+        "providerId": "openai_api_authorized",
+        "mode": mode,
+        "allowed": allowed,
+        "localOrPresentation": local_or_presentation,
+        "baseUrl": settings.openai_base_url.rstrip("/"),
+        "baseUrlRedacted": redacted_runtime_url(settings.openai_base_url),
+        "modelId": settings.openai_model,
+        "candidateModels": candidate_models,
+        "credentialPresent": bool(settings.openai_api_key),
+        "credentialSource": "OPENAI_API_KEY" if settings.openai_api_key else "",
+        "projectConfigured": bool(settings.openai_project_id),
+        "organizationConfigured": bool(settings.openai_organization_id),
+        "missingRequirements": missing,
+        "ready": len(missing) == 0,
+        "privateEnv": get_private_env_status(),
+        "envSource": runtime_env_source(),
+        "secretsExposed": False,
+    }
+
+
+def openai_api_authorized_status_payload() -> dict:
+    config = openai_api_authorized_config()
+    ready = bool(config["ready"])
+    return {
+        "providerId": "openai_api_authorized",
+        "displayName": "Authorized OpenAI API",
+        "category": "product_owner_private_live",
+        "runtimeKind": "openai_api_authorized",
+        "status": "ready" if ready else "missing",
+        "active": ready,
+        "canInvokeLiveRuntime": ready,
+        "officialProduction": False,
+        "productionBlocked": True,
+        "productionBlockedReason": "OpenAI API authorized path is live for Product Owner developer/presentation, not official production binding.",
+        "baseUrlConfigured": bool(config["baseUrl"]),
+        "baseUrlRedacted": config["baseUrlRedacted"],
+        "modelId": config["modelId"],
+        "candidateModels": config["candidateModels"],
+        "credentialPresent": config["credentialPresent"],
+        "credentialSource": config["credentialSource"],
+        "projectConfigured": config["projectConfigured"],
+        "organizationConfigured": config["organizationConfigured"],
+        "missingRequirements": config["missingRequirements"],
+        "privateEnv": config["privateEnv"],
+        "validationSummary": {
+            "mode": config["mode"],
+            "allowed": config["allowed"],
+            "localOrPresentation": config["localOrPresentation"],
+            "endpoint": config["baseUrlRedacted"],
+            "credential": "present_redacted" if config["credentialPresent"] else "not_configured",
+            "models": config["candidateModels"],
+        },
+        "secretsExposed": False,
+    }
+
+
+def resolve_codex_cli_command() -> str:
+    explicit = (os.getenv("AIOS_CODEX_CLI_PATH") or "").strip().strip('"')
+    candidates: list[str] = []
+    if explicit:
+        candidates.append(explicit)
+    which_path = shutil.which("codex")
+    if which_path:
+        candidates.append(which_path)
+    local_app_data = os.getenv("LOCALAPPDATA", "")
+    app_data = os.getenv("APPDATA", "")
+    user_profile = os.getenv("USERPROFILE", "")
+    if local_app_data:
+        candidates.append(str(Path(local_app_data) / "OpenAI" / "Codex" / "bin" / "codex.exe"))
+    if app_data:
+        candidates.append(str(Path(app_data) / "npm" / "codex.cmd"))
+    if user_profile:
+        candidates.append(str(Path(user_profile) / ".codex" / "bin" / "codex.exe"))
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    return ""
+
+
+def codex_cli_runtime_config() -> dict:
+    mode = (os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "local").strip().lower()
+    allowed = env_truthy("AIOS_ALLOW_CODEX_CLI_RUNTIME") or (os.getenv("AIOS_CHAT_PROVIDER", "").strip().lower() == "codex_cli_local_developer")
+    local_or_presentation = mode in {"local_developer", "presentation", "local", "dev", "development"}
+    command_path = resolve_codex_cli_command()
+    version = ""
+    version_error = ""
+    if command_path:
+        try:
+            version_result = subprocess.run(
+                [command_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            version = redact((version_result.stdout or version_result.stderr or "").strip())
+            if version_result.returncode != 0:
+                version_error = redact(version_result.stderr or version_result.stdout or f"codex --version exited {version_result.returncode}")
+        except Exception as exc:
+            version_error = redact(str(exc))
+    missing = []
+    if not allowed:
+        missing.append("AIOS_ALLOW_CODEX_CLI_RUNTIME=true or AIOS_CHAT_PROVIDER=codex_cli_local_developer")
+    if not local_or_presentation:
+        missing.append("AIOS_ENV=local_developer|presentation")
+    if not command_path:
+        missing.append("codex CLI in PATH")
+    if command_path and version_error:
+        missing.append("codex --version successful")
+    return {
+        "providerId": "codex_cli_local_developer",
+        "mode": mode,
+        "allowed": allowed,
+        "localOrPresentation": local_or_presentation,
+        "commandPresent": bool(command_path),
+        "commandLabel": "codex" if command_path else "",
+        "commandPath": command_path,
+        "version": version,
+        "versionError": version_error,
+        "modelId": os.getenv("AIOS_CODEX_CLI_MODEL", os.getenv("OPENAI_MODEL", "codex_model_picker")),
+        "candidateModels": ["gpt-5.2-codex", "gpt-5.5", "gpt-4o"],
+        "missingRequirements": missing,
+        "ready": len(missing) == 0,
+        "authJsonRead": False,
+        "authJsonPathReturned": False,
+        "secretsExposed": False,
+    }
+
+
+def codex_cli_runtime_status_payload() -> dict:
+    config = codex_cli_runtime_config()
+    ready = bool(config["ready"])
+    return {
+        "providerId": "codex_cli_local_developer",
+        "displayName": "Codex CLI Local Developer Live",
+        "category": "delegated_local_live",
+        "runtimeKind": "codex_cli_local_developer",
+        "status": "ready" if ready else "missing",
+        "active": ready,
+        "canInvokeLiveRuntime": ready,
+        "officialProduction": False,
+        "productionBlocked": True,
+        "productionBlockedReason": "Codex CLI local developer is a private presentation runtime, not official production binding.",
+        "commandPresent": config["commandPresent"],
+        "commandLabel": config["commandLabel"],
+        "version": config["version"],
+        "modelId": config["modelId"],
+        "candidateModels": config["candidateModels"],
+        "missingRequirements": config["missingRequirements"],
+        "validationSummary": {
+            "mode": config["mode"],
+            "allowed": config["allowed"],
+            "localOrPresentation": config["localOrPresentation"],
+            "authJsonRead": False,
+            "authJsonPathReturned": False,
+            "credential": "managed_by_codex_cli_not_aios",
+        },
+        "secretsExposed": False,
+    }
+
+
+def summarize_codex_cli_error(text: str) -> str:
+    cleaned = redact(text or "")
+    usage_match = re.search(r"You['’]ve hit your usage limit[^\"\r\n]*", cleaned, re.IGNORECASE)
+    if usage_match:
+        return usage_match.group(0)[:700]
+
+    message_match = re.search(r'"message"\s*:\s*"([^"]+)"', cleaned)
+    if message_match:
+        message = message_match.group(1)
+        try:
+            message = json.loads(f'"{message}"')
+        except Exception:
+            pass
+        return str(message)[:700]
+
+    important_lines = []
+    for line in cleaned.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in ("invalid_request_error", "not supported", "unauthorized", "forbidden", "exited", "error")):
+            if "enable javascript and cookies" in lowered or "body{font-family" in lowered:
+                continue
+            important_lines.append(line.strip())
+    if important_lines:
+        return "\n".join(important_lines[:6])[:900]
+    return (cleaned.strip() or "Codex CLI runtime failed without stderr/stdout.").replace("\r", "")[:700]
+
+
+def codex_cli_exec_response(objective: str, model_id: str | None = None, timeout_seconds: int = 120) -> dict:
+    config = codex_cli_runtime_config()
+    if not config["ready"]:
+        raise HTTPException(
+            status_code=424,
+            detail={
+                "message": "Codex CLI local developer runtime is not ready.",
+                "missingRequirements": config["missingRequirements"],
+                "secretsExposed": False,
+            },
+        )
+    selected_model = (model_id or config["modelId"] or "").strip()
+    command = [
+        config.get("commandPath") or resolve_codex_cli_command() or "codex",
+        "exec",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--ephemeral",
+        "--disable",
+        "plugins",
+        "--json",
+    ]
+    if selected_model and selected_model != "codex_model_picker":
+        command.extend(["--model", selected_model])
+    command.append(objective)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=max(1, min(timeout_seconds, 300)),
+        check=False,
+        cwd=str(Path(__file__).resolve().parents[2]),
+    )
+    stdout = redact(result.stdout or "")
+    stderr = redact(result.stderr or "")
+    if result.returncode != 0:
+        combined_output = "\n".join(part for part in (stdout, stderr, f"codex exec exited {result.returncode}") if part)
+        raise RuntimeError(summarize_codex_cli_error(combined_output))
+    output_text = stdout.strip()
+    extracted_messages: list[str] = []
+    for line in output_text.splitlines():
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        item = parsed.get("item") if isinstance(parsed.get("item"), dict) else {}
+        if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+            extracted_messages.append(item["text"])
+        elif isinstance(parsed.get("message"), str) and parsed.get("type") not in {"error"}:
+            extracted_messages.append(parsed["message"])
+    if extracted_messages:
+        output_text = "\n".join(extracted_messages).strip()
+    if not output_text.strip():
+        output_text = "Runtime vivo concluiu, mas nao retornou texto. Reenvie a mensagem ou troque o modelo/agente."
+    return {
+        "model": selected_model or "codex_model_picker",
+        "adapter": "CodexCliLocalDeveloperAdapter",
+        "outputText": output_text,
+        "raw": stdout,
+        "stderr": stderr,
+    }
+
+
+def community_runtime_chat_endpoint(base_url: str) -> str:
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith("/chat/completions"):
+        return trimmed
+    return f"{trimmed}/chat/completions"
+
+
+def community_runtime_chat_response(messages: list[dict], model_id: str | None = None, timeout_seconds: int = 120) -> dict:
+    config = community_runtime_config()
+    if not config["ready"]:
+        raise HTTPException(
+            status_code=424,
+            detail={
+                "message": "Community wrapper runtime is not configured.",
+                "missingRequirements": config["missingRequirements"],
+                "secretsExposed": False,
+            },
+        )
+    selected_model = model_id or config["modelId"]
+    headers = {"Content-Type": "application/json"}
+    if config["credentialPresent"]:
+        headers["Authorization"] = f"Bearer {os.getenv('AIOS_COMMUNITY_RUNTIME_API_KEY') or os.getenv('AIOS_INFERENCE_API_KEY')}"
+    payload = {
+        "model": selected_model,
+        "messages": messages,
+        "stream": False,
+        "temperature": 0.2,
+    }
+    with httpx.Client(timeout=max(1, min(timeout_seconds, 300))) as client:
+        response = client.post(community_runtime_chat_endpoint(config["baseUrl"]), json=payload, headers=headers)
+        response.raise_for_status()
+        body = response.json()
+    choices = body.get("choices") if isinstance(body, dict) else None
+    output_text = ""
+    if choices and isinstance(choices, list):
+        first = choices[0] if choices else {}
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                output_text = str(message.get("content") or "")
+            if not output_text:
+                output_text = str(first.get("text") or "")
+    if not output_text and isinstance(body, dict):
+        output_text = str(body.get("output_text") or body.get("response") or body.get("content") or "")
+    if not output_text:
+        output_text = json.dumps(redact(body), ensure_ascii=False)
+    return {
+        "model": selected_model,
+        "adapter": "CommunityWrapperRuntimeAdapter",
+        "outputText": redact(output_text),
+        "raw": redact(body),
+        "endpoint": config["baseUrlRedacted"],
+        "secretsExposed": False,
+    }
+
+
+def aios_native_runtime_config() -> dict:
+    mode = (os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "local_developer").strip().lower()
+    local_or_presentation = mode in {"local_developer", "presentation", "local", "dev", "development"}
+    enabled = os.getenv("AIOS_NATIVE_RUNTIME_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+    missing = []
+    if not enabled:
+        missing.append("AIOS_NATIVE_RUNTIME_ENABLED=true")
+    if not local_or_presentation:
+        missing.append("AIOS_ENV=local_developer|presentation")
+    return {
+        "providerId": "aios_native_runtime",
+        "mode": mode,
+        "enabled": enabled,
+        "localOrPresentation": local_or_presentation,
+        "modelId": os.getenv("AIOS_NATIVE_RUNTIME_MODEL", "aios-native-fabric-v1"),
+        "supportedProfiles": ["aios-native-fabric-v1", "gpt-5.5-workflow-profile", "gpt-5.2-codex-workflow-profile", "gpt-4o-product-profile"],
+        "missingRequirements": missing,
+        "ready": len(missing) == 0,
+    }
+
+
+def aios_native_runtime_response(objective: str, model_id: str | None = None) -> dict:
+    config = aios_native_runtime_config()
+    if not config["ready"]:
+        raise HTTPException(
+            status_code=424,
+            detail={
+                "message": "AIOS Native Runtime is not ready.",
+                "missingRequirements": config["missingRequirements"],
+                "secretsExposed": False,
+            },
+        )
+    selected_model = (model_id or config["modelId"] or "aios-native-fabric-v1").strip()
+    objective_clean = " ".join((objective or "Sessao AIOS").strip().split())[:800]
+    proprietary_profiles = {"gpt-4o", "gpt-5.2-codex", "gpt-5.5"}
+    profile_note = (
+        f"Perfil solicitado: {selected_model}. Execucao atual: AIOS Native Cognitive Fabric local; "
+        "perfil proprietario usado como alvo de experiencia, nao como checkpoint/modelo proprietario."
+        if selected_model in proprietary_profiles
+        else f"Runtime local ativo: {selected_model}."
+    )
+    output_text = "\n".join(
+        [
+            "AIOS Native Runtime respondeu localmente sem API key, sem auth.json e sem endpoint externo.",
+            profile_note,
+            f"Objetivo da sessao: {objective_clean}",
+            "Agent Room:",
+            "- Architect: transforma o objetivo em plano curto e checkpoints.",
+            "- Builder: prepara a proxima acao executavel no Workbench.",
+            "- Reviewer: registra risco, diff esperado e criterio de aceite.",
+            "- Docs: gera handoff para a proxima etapa.",
+            "Proximo passo recomendado: criar snapshot, executar a acao aprovada e registrar evidencia no Workbench.",
+        ]
+    )
+    return {
+        "model": selected_model,
+        "runtimeModelId": "aios-native-fabric-v1",
+        "adapter": "AIOSNativeCognitiveFabricAdapter",
+        "outputText": output_text,
+        "usageCaptured": False,
+        "networkCallPerformed": False,
+        "secretsExposed": False,
+    }
+
+
 RUNTIME_BROKER_PROVIDER_ORDER = [
     "official_codex_runtime",
+    "aios_native_runtime",
     "codex_delegated",
     "aios_cloud_runtime",
+    "community_wrapper_runtime",
+    "codex_cli_local_developer",
     "openai_api_authorized",
     "puter_user_pays_browser",
     "github_models_demo",
@@ -1241,6 +1782,21 @@ def runtime_broker_provider_catalog() -> list[dict]:
             "officialRuntime": True,
             "canClaimLiveRuntime": True,
             "liveRuntimeGate": "runtime_binding_active",
+            "backendInvokable": True,
+        },
+        {
+            "providerId": "aios_native_runtime",
+            "name": "AIOS Native Cognitive Fabric",
+            "category": "aios_native",
+            "defaultModel": os.getenv("AIOS_NATIVE_RUNTIME_MODEL", "aios-native-fabric-v1"),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": False,
+            "runtimeSurface": "local_aios_native_session_engine",
+            "status": "available_in_local_developer_and_presentation_without_external_runtime",
+            "qualityRole": "AIOS-owned session, Agent Room, memory, snapshot and governance runtime; not a proprietary OpenAI model checkpoint",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": True,
+            "liveRuntimeGate": "aios_native_runtime_ready_not_official_production",
             "backendInvokable": True,
         },
         {
@@ -1272,6 +1828,36 @@ def runtime_broker_provider_catalog() -> list[dict]:
             "canClaimLiveRuntime": False,
             "liveRuntimeGate": "aios_cloud_gateway_ready_not_enterprise_binding",
             "backendInvokable": False,
+        },
+        {
+            "providerId": "community_wrapper_runtime",
+            "name": "Community Wrapper Runtime",
+            "category": "private_local_runtime",
+            "defaultModel": os.getenv("AIOS_COMMUNITY_RUNTIME_MODEL_ID", os.getenv("AIOS_INFERENCE_MODEL_ID", "gpt-oss:20b")),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": False,
+            "runtimeSurface": "openai_compatible_private_wrapper",
+            "status": "available_when_local_private_endpoint_is_configured",
+            "qualityRole": "real private runtime for local developer or presentation demos without storing secrets in Git",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": True,
+            "liveRuntimeGate": "private_local_runtime_ready_not_official_production",
+            "backendInvokable": True,
+        },
+        {
+            "providerId": "codex_cli_local_developer",
+            "name": "Codex CLI Local Developer Live",
+            "category": "delegated_local_live",
+            "defaultModel": os.getenv("AIOS_CODEX_CLI_MODEL", os.getenv("OPENAI_MODEL", "codex_model_picker")),
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": True,
+            "runtimeSurface": "codex_cli_exec",
+            "status": "available_when_codex_cli_is_installed_authenticated_and_allowed",
+            "qualityRole": "real local developer/presentation runtime through official Codex CLI auth without AIOS reading auth.json",
+            "officialRuntime": False,
+            "canClaimLiveRuntime": True,
+            "liveRuntimeGate": "codex_cli_local_developer_ready_not_official_production",
+            "backendInvokable": True,
         },
         {
             "providerId": "openai_api_authorized",
@@ -1408,20 +1994,26 @@ def runtime_broker_provider_explanation(provider_id: str, provider_status: dict 
     can_invoke_live = bool(provider_status.get("canInvokeLiveRuntime")) if provider_status else False
     if provider_id == "official_codex_runtime":
         message = (
-            "Somente este provider pode declarar canInvokeLiveRuntime=true, e apenas quando RC16/RC17 binding oficial estiver ativo."
+            "Este provider e o unico que pode declarar officialProduction=true, apenas quando o binding oficial completo estiver ativo."
         )
     elif provider_id == "codex_delegated":
         message = "Codex delegado usa auth ChatGPT/Enterprise/App-Server e nao altera canInvokeLiveRuntime do binding enterprise."
+    elif provider_id == "aios_native_runtime":
+        message = "AIOS Native Runtime e a trilha RC34 de inovacao: funciona sem API key, sem auth.json e sem endpoint externo; nao declara modelo proprietario OpenAI."
+    elif provider_id == "community_wrapper_runtime":
+        message = "Runtime privado real pode declarar canInvokeLiveRuntime=true para demo local, mas officialProduction continua false."
+    elif provider_id == "codex_cli_local_developer":
+        message = "Codex CLI local pode declarar canInvokeLiveRuntime=true para desenvolvedor/presentation quando o CLI esta instalado e autorizado; AIOS nao le auth.json."
     elif provider_id == "controlled_simulator":
         message = "Simulador controlado pode demonstrar UX e auditoria, mas nunca declara runtime live."
     else:
-        message = "Provider alternativo pode executar demo/fallback, mas nao substitui o binding enterprise oficial."
+        message = "Provider alternativo pode executar demo/fallback validado, mas nao substitui o binding enterprise oficial."
     return {
         "providerId": provider_id,
         "selected": provider_id,
         "canInvokeLiveRuntime": can_invoke_live,
         "message": message,
-        "safeForNoKeyDemo": provider_id in {"puter_user_pays_browser", "github_models_demo", "controlled_simulator", "aios_cloud_runtime"},
+        "safeForNoKeyDemo": provider_id in {"puter_user_pays_browser", "github_models_demo", "controlled_simulator", "aios_cloud_runtime", "community_wrapper_runtime", "codex_cli_local_developer", "aios_native_runtime"},
         "requiresSecretsInFrontend": False,
         "secretsExposed": False,
     }
@@ -1440,9 +2032,16 @@ def runtime_broker_status(db: Session) -> dict:
 
     ollama_model_available = ollama.default_model in ollama_models
     ollama_available = bool(ollama_models) and ollama_model_available
-    openai_api_ready = openai_model_discovery_security_state()["ready"]
+    openai_api_status = openai_api_authorized_status_payload()
+    openai_api_ready = bool(openai_api_status["canInvokeLiveRuntime"])
     aios_cloud_ready = bool(os.getenv("AIOS_CLOUD_RUNTIME_BASE_URL", "").strip())
     codex_delegated_ready = bool(os.getenv("AIOS_CODEX_APP_SERVER_ENDPOINT", "").strip())
+    community_status = community_runtime_status_payload()
+    community_ready = bool(community_status["canInvokeLiveRuntime"])
+    codex_cli_status = codex_cli_runtime_status_payload()
+    codex_cli_ready = bool(codex_cli_status["canInvokeLiveRuntime"])
+    aios_native_status = aios_native_runtime_config()
+    aios_native_ready = bool(aios_native_status["ready"])
     vllm_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "vllm" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
     tgi_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "tgi" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
     llamafile_ready = os.getenv("AIOS_INFERENCE_PROVIDER", "").strip().lower() == "llamafile_server" and bool(os.getenv("AIOS_INFERENCE_BASE_URL", "").strip())
@@ -1468,6 +2067,26 @@ def runtime_broker_status(db: Session) -> dict:
             "backendInvokable": False,
             "networkCallPerformed": False,
         },
+        "aios_native_runtime": {
+            "available": aios_native_ready,
+            "realRuntime": True,
+            "requiresDeveloperApiKey": False,
+            "requiresUserAccount": False,
+            "configuredModel": aios_native_status["modelId"],
+            "supportedProfiles": aios_native_status["supportedProfiles"],
+            "missing": aios_native_status["missingRequirements"],
+            "canInvokeLiveRuntime": aios_native_ready,
+            "officialRuntime": False,
+            "officialProduction": False,
+            "productionBlocked": True,
+            "liveRuntimeGate": "aios_native_runtime_ready_not_official_production",
+            "backendInvokable": True,
+            "networkCallPerformed": False,
+            "apiKeyRequired": False,
+            "authJsonRead": False,
+            "endpointRequired": False,
+            "secretsExposed": False,
+        },
         "aios_cloud_runtime": {
             "available": aios_cloud_ready,
             "requiresDeveloperApiKey": False,
@@ -1476,14 +2095,68 @@ def runtime_broker_status(db: Session) -> dict:
             "backendInvokable": False,
             "networkCallPerformed": False,
         },
+        "community_wrapper_runtime": {
+            "available": community_ready,
+            "realRuntime": True,
+            "requiresDeveloperApiKey": False,
+            "configuredModel": community_status["modelId"],
+            "supportedModelProfiles": community_status["supportedModelProfiles"],
+            "providerModelAliases": community_status["providerModelAliases"],
+            "baseUrlConfigured": community_status["baseUrlConfigured"],
+            "baseUrlRedacted": community_status["baseUrlRedacted"],
+            "credentialPresent": community_status["credentialPresent"],
+            "credentialRequired": community_status["credentialRequired"],
+            "missing": community_status["missingRequirements"],
+            "canInvokeLiveRuntime": community_ready,
+            "officialRuntime": False,
+            "officialProduction": False,
+            "productionBlocked": True,
+            "liveRuntimeGate": "private_local_runtime_ready_not_official_production",
+            "backendInvokable": True,
+            "networkCallPerformed": False,
+            "secretsExposed": False,
+        },
+        "codex_cli_local_developer": {
+            "available": codex_cli_ready,
+            "realRuntime": True,
+            "requiresDeveloperApiKey": False,
+            "configuredModel": codex_cli_status["modelId"],
+            "candidateModels": codex_cli_status["candidateModels"],
+            "commandPresent": codex_cli_status["commandPresent"],
+            "commandLabel": codex_cli_status["commandLabel"],
+            "version": codex_cli_status["version"],
+            "missing": codex_cli_status["missingRequirements"],
+            "canInvokeLiveRuntime": codex_cli_ready,
+            "officialRuntime": False,
+            "officialProduction": False,
+            "productionBlocked": True,
+            "liveRuntimeGate": "codex_cli_local_developer_ready_not_official_production",
+            "backendInvokable": True,
+            "networkCallPerformed": False,
+            "authJsonRead": False,
+            "authJsonPathReturned": False,
+            "secretsExposed": False,
+        },
         "openai_api_authorized": {
             "available": openai_api_ready,
             "requiresDeveloperApiKey": True,
+            "realRuntime": True,
             "configuredModel": settings.openai_model,
-            "canInvokeLiveRuntime": False,
+            "candidateModels": openai_api_status["candidateModels"],
+            "baseUrlConfigured": openai_api_status["baseUrlConfigured"],
+            "baseUrlRedacted": openai_api_status["baseUrlRedacted"],
+            "credentialPresent": openai_api_status["credentialPresent"],
+            "projectConfigured": openai_api_status["projectConfigured"],
+            "organizationConfigured": openai_api_status["organizationConfigured"],
+            "missing": openai_api_status["missingRequirements"],
+            "canInvokeLiveRuntime": openai_api_ready,
             "officialRuntime": False,
+            "officialProduction": False,
+            "productionBlocked": True,
+            "liveRuntimeGate": "product_owner_openai_api_authorized_not_official_production",
             "backendInvokable": True,
             "networkCallPerformed": False,
+            "secretsExposed": False,
         },
         "puter_user_pays_browser": {
             "available": True,
@@ -1547,9 +2220,27 @@ def runtime_broker_status(db: Session) -> dict:
             "networkCallPerformed": False,
         },
     }
-    if providers["official_codex_runtime"]["available"]:
+    preferred_provider = (
+        os.getenv("AIOS_CHAT_PROVIDER")
+        or os.getenv("AIOS_RUNTIME_BROKER_DEFAULT_PROVIDER")
+        or settings.runtime_broker_default_provider
+        or "auto"
+    ).strip().lower()
+    if preferred_provider in providers and providers[preferred_provider]["available"]:
+        recommended = preferred_provider
+        reason_code = "configured_provider_available"
+    elif providers["official_codex_runtime"]["available"]:
         recommended = "official_codex_runtime"
         reason_code = "official_binding_active"
+    elif providers["aios_native_runtime"]["available"]:
+        recommended = "aios_native_runtime"
+        reason_code = "aios_native_runtime_available"
+    elif providers["community_wrapper_runtime"]["available"]:
+        recommended = "community_wrapper_runtime"
+        reason_code = "private_community_runtime_available"
+    elif providers["codex_cli_local_developer"]["available"]:
+        recommended = "codex_cli_local_developer"
+        reason_code = "codex_cli_local_developer_available"
     elif providers["ollama_local_cloud"]["available"]:
         recommended = "ollama_local_cloud"
         reason_code = "backend_invokable_fallback_available"
@@ -1568,7 +2259,11 @@ def runtime_broker_status(db: Session) -> dict:
     else:
         recommended = "controlled_simulator"
         reason_code = "controlled_simulator_only"
-    live_runtime_provider = "official_codex_runtime" if official_live else ""
+    if providers.get(recommended, {}).get("canInvokeLiveRuntime"):
+        live_runtime_provider = recommended
+    else:
+        live_runtime_provider = next((provider_id for provider_id in RUNTIME_BROKER_PROVIDER_ORDER if providers.get(provider_id, {}).get("canInvokeLiveRuntime")), "")
+    can_invoke_live_runtime = bool(live_runtime_provider)
     selected_explanation = runtime_broker_provider_explanation(recommended, providers.get(recommended))
     return {
         "phase": "RC21_RUNTIME_BROKER_2",
@@ -1581,7 +2276,8 @@ def runtime_broker_status(db: Session) -> dict:
         },
         "recommendedProvider": recommended,
         "liveRuntimeProvider": live_runtime_provider,
-        "canInvokeLiveRuntime": official_live,
+        "canInvokeLiveRuntime": can_invoke_live_runtime,
+        "officialProduction": official_live,
         "selection": {
             "providerId": recommended,
             "reasonCode": reason_code,
@@ -1612,7 +2308,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     audit(db, user, "auth.login", "user", {"email": user.email})
-    return {"accessToken": create_access_token(user.id, user.role), "tokenType": "bearer"}
+    return {"accessToken": create_access_token(user.id, user.role, get_settings().jwt_expires_minutes), "tokenType": "bearer"}
 
 
 @app.get("/me")
@@ -2001,6 +2697,372 @@ def runtime_binding_status_endpoint(db: Session = Depends(get_db), user: User = 
     return result
 
 
+@app.get("/runtime/community-wrapper/status")
+def community_wrapper_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    status = community_runtime_status_payload()
+    audit(
+        db,
+        user,
+        "community_wrapper.status",
+        status["status"],
+        {
+            "provider": status["providerId"],
+            "canInvokeLiveRuntime": status["canInvokeLiveRuntime"],
+            "officialProduction": status["officialProduction"],
+            "secretsExposed": False,
+        },
+    )
+    return status
+
+
+@app.post("/runtime/community-wrapper/validate")
+def community_wrapper_validate(
+    payload: CommunityRuntimeValidateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    status = community_runtime_status_payload()
+    result = {
+        **status,
+        "validationTimestamp": datetime.utcnow().isoformat(),
+        "smokeTest": None,
+        "secretsExposed": False,
+    }
+    if payload.runSmokeTest:
+        mesh = AIOSCognitiveRuntimeMesh()
+        smoke = community_runtime_chat_response(mesh.build_messages(payload.prompt, "rc31-smoke-test"), status["modelId"], payload.timeoutSeconds)
+        result["smokeTest"] = {
+            "providerId": status["providerId"],
+            "model": smoke["model"],
+            "outputText": smoke["outputText"],
+            "networkCallPerformed": True,
+            "secretsExposed": False,
+        }
+    audit(
+        db,
+        user,
+        "community_wrapper.validate",
+        result["status"],
+        {
+            "provider": result["providerId"],
+            "canInvokeLiveRuntime": result["canInvokeLiveRuntime"],
+            "smokeTest": bool(result["smokeTest"]),
+            "secretsExposed": False,
+        },
+    )
+    return result
+
+
+OWNER_MODEL_LAB_MODELS = [
+    {
+        "modelId": "gpt-5.5",
+        "label": "GPT-5.5",
+        "purpose": "coding/professional work via Codex CLI sign-in or official API when available",
+        "preferredProviders": ["codex_cli_local_developer", "openai_api_authorized"],
+    },
+    {
+        "modelId": "gpt-5.2-codex",
+        "label": "GPT-5.2 Codex",
+        "purpose": "coding agentico via official API/Codex account only when that account supports it",
+        "preferredProviders": ["openai_api_authorized"],
+    },
+    {
+        "modelId": "gpt-4o",
+        "label": "GPT-4o",
+        "purpose": "general/multimodal profile via official API when enabled for the credential",
+        "preferredProviders": ["openai_api_authorized"],
+    },
+    {
+        "modelId": "gpt-oss:20b",
+        "label": "GPT OSS 20B",
+        "purpose": "open-weight/self-hosted local model via Ollama/OpenAI-compatible local runtime",
+        "preferredProviders": ["community_wrapper_runtime", "ollama_local_cloud"],
+    },
+    {
+        "modelId": "aios-native-fabric-v1",
+        "label": "AIOS Native Fabric",
+        "purpose": "AIOS-owned session, Agent Room, memory and governance runtime without external model dependency",
+        "preferredProviders": ["aios_native_runtime"],
+    },
+]
+
+
+def owner_model_lab_payload(db: Session) -> dict:
+    status = runtime_broker_status(db)
+    providers = status["providers"]
+    model_cards = []
+    for model in OWNER_MODEL_LAB_MODELS:
+        preferred = model["preferredProviders"]
+        ready_providers = [
+            provider_id for provider_id in preferred
+            if providers.get(provider_id, {}).get("available") and providers.get(provider_id, {}).get("backendInvokable")
+        ]
+        if ready_providers:
+            state = "ready_for_live_probe"
+            next_action = "Selecione este modelo e clique em Testar Modelo Selecionado."
+        elif model["modelId"] in {"gpt-4o", "gpt-5.2-codex"}:
+            state = "requires_official_model_access"
+            next_action = "Use OpenAI API autorizada ou Codex account/runtime que habilite este modelo."
+        elif model["modelId"] == "gpt-oss:20b":
+            state = "requires_self_hosted_runtime"
+            next_action = "Inicie Ollama/vLLM/TGI com gpt-oss:20b ou use um endpoint local OpenAI-compatible."
+        else:
+            state = "not_ready"
+            next_action = "Ative um provider real para este modelo."
+        model_cards.append({
+            **model,
+            "status": state,
+            "readyProviders": ready_providers,
+            "primaryProvider": ready_providers[0] if ready_providers else "",
+            "canInvokeLiveRuntime": bool(ready_providers),
+            "nextAction": next_action,
+        })
+    return {
+        "phase": "RC34_OWNER_MODEL_LAB",
+        "headline": "Owner Model Lab: usar somente providers reais validados.",
+        "activeRuntimeProvider": status["liveRuntimeProvider"],
+        "recommendedProvider": status["recommendedProvider"],
+        "canInvokeLiveRuntime": status["canInvokeLiveRuntime"],
+        "officialProduction": status["officialProduction"],
+        "models": model_cards,
+        "providers": providers,
+        "secretsExposed": False,
+    }
+
+
+@app.get("/runtime/owner/model-lab")
+def owner_model_lab(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    payload = owner_model_lab_payload(db)
+    audit(db, user, "owner_model_lab.status", payload["recommendedProvider"], {"secretsExposed": False})
+    return payload
+
+
+@app.post("/runtime/owner/model-lab/probe")
+def owner_model_lab_probe(payload: OwnerModelProbeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    status = runtime_broker_status(db)
+    provider_id = payload.providerId.strip().lower() if payload.providerId else "auto"
+    if provider_id == "auto":
+        provider_id = status["recommendedProvider"]
+    model_id = payload.modelId.strip() or str(status["providers"].get(provider_id, {}).get("configuredModel") or "gpt-5.5")
+    prompt = payload.prompt.strip() or "Responda exatamente: AIOS OWNER MODEL LAB OK"
+    try:
+        if provider_id == "codex_cli_local_developer":
+            result = codex_cli_exec_response(prompt, model_id, payload.timeoutSeconds)
+        elif provider_id == "openai_api_authorized":
+            settings = get_settings()
+            openai_adapter = OfficialCodexRuntimeAdapter(
+                settings.openai_base_url,
+                settings.openai_api_key,
+                provider="openai_api",
+                default_model=settings.openai_model,
+                project_id=settings.openai_project_id,
+                organization_id=settings.openai_organization_id,
+                max_output_tokens=settings.openai_max_output_tokens,
+                reasoning_effort=settings.openai_reasoning_effort,
+            )
+            openai_result = openai_adapter.invoke_responses("owner-model-lab", model_id, prompt)
+            result = {
+                "model": openai_result["runtimeModelId"],
+                "adapter": openai_result["adapter"],
+                "outputText": openai_result["outputText"],
+                "networkCallPerformed": True,
+            }
+        elif provider_id == "community_wrapper_runtime":
+            mesh = AIOSCognitiveRuntimeMesh()
+            result = community_runtime_chat_response(mesh.build_messages(prompt, "owner-model-lab"), model_id, payload.timeoutSeconds)
+        elif provider_id == "aios_native_runtime":
+            result = aios_native_runtime_response(prompt, model_id)
+        else:
+            raise RuntimeError(f"Provider {provider_id} is not invokable from Owner Model Lab.")
+        response = {
+            "status": "verified_live",
+            "providerId": provider_id,
+            "modelId": model_id,
+            "adapter": result["adapter"],
+            "outputText": result["outputText"],
+            "networkCallPerformed": bool(result.get("networkCallPerformed", True)),
+            "validationSummary": "Modelo respondeu por provider real validado nesta maquina.",
+            "secretsExposed": False,
+        }
+        audit(db, user, "owner_model_lab.probe.completed", model_id, {"provider": provider_id, "secretsExposed": False})
+        return response
+    except Exception as exc:
+        summary = redact(str(exc))
+        response = {
+            "status": "unsupported_or_failed",
+            "providerId": provider_id,
+            "modelId": model_id,
+            "adapter": "",
+            "outputText": "",
+            "networkCallPerformed": provider_id != "aios_native_runtime",
+            "validationSummary": summary,
+            "secretsExposed": False,
+        }
+        audit(db, user, "owner_model_lab.probe.failed", model_id, {"provider": provider_id, "error": summary, "secretsExposed": False})
+        return response
+
+
+SOVEREIGN_BETA_ORGANS = [
+    {
+        "organId": "aios_strategic.beta.organ",
+        "displayName": "Strategic beta organ",
+        "modelProfile": "gpt-55.strategic.beta.organ",
+        "reality": "beta_open_weight",
+        "contractCapabilities": ["identify", "capabilities", "attest", "lease", "generate"],
+        "artifactPath": "deploy/registry/bootstrap/organs/gpt-55.strategic.beta.organ/manifest.json",
+    },
+    {
+        "organId": "aios_code.beta.organ",
+        "displayName": "Code beta organ",
+        "modelProfile": "gpt-52.codex.beta.organ",
+        "reality": "beta_open_weight",
+        "contractCapabilities": ["identify", "capabilities", "attest", "lease", "generate", "patch", "verify"],
+        "artifactPath": "deploy/registry/bootstrap/organs/gpt-52.codex.beta.organ/manifest.json",
+    },
+    {
+        "organId": "aios_multimodal.beta.organ",
+        "displayName": "Multimodal beta organ",
+        "modelProfile": "gpt-4o.multimodal.beta.organ",
+        "reality": "beta_open_weight",
+        "contractCapabilities": ["identify", "capabilities", "attest", "lease", "generate"],
+        "artifactPath": "deploy/registry/bootstrap/organs/gpt-4o.multimodal.beta.organ/manifest.json",
+    },
+]
+
+
+def sovereign_organ_artifact_status(relative_manifest_path: str) -> dict:
+    repo_root = Path(__file__).resolve().parents[2]
+    manifest_path = repo_root / relative_manifest_path
+    exists = manifest_path.exists()
+    return {
+        "manifestPresent": exists,
+        "manifestRef": relative_manifest_path,
+        "status": "available" if exists else "specified_pending_artifact",
+    }
+
+
+def sovereign_delegate_status() -> dict:
+    codex_status = codex_cli_runtime_status_payload()
+    return {
+        "connected": bool(codex_status["canInvokeLiveRuntime"]),
+        "cliVersion": codex_status["version"],
+        "plan": "codex_account_plan_uninspected",
+        "transport": "codex_exec_json_ephemeral",
+        "localBridgeSocket": "not_started",
+        "localBridgeCommandAvailable": False,
+        "readsAuthJson": False,
+        "copiesTokens": False,
+        "usesAiosApiKey": False,
+        "limitations": ["rate=delegated", "context=codex_account_policy", "usage_limit=codex_account_policy"],
+        "missingRequirements": codex_status["missingRequirements"],
+        "secretsExposed": False,
+    }
+
+
+def sovereign_status_payload(db: Session) -> dict:
+    runtime_status = runtime_broker_status(db)
+    delegate = sovereign_delegate_status()
+    organs = [
+        {
+            "organId": "codex.plan.core",
+            "displayName": "Codex Plan Core",
+            "reality": "codex_plan_bridge",
+            "type": "official_delegated_organ",
+            "status": "available" if delegate["connected"] else "missing",
+            "modelSource": "codex_account_plan",
+            "implementedCapabilities": ["identify", "capabilities", "delegate_status", "generate"],
+            "contractCapabilities": ["identify", "capabilities", "attest", "lease", "generate", "patch", "verify", "delegate_status"],
+            "delegateStatus": delegate,
+            "canInvokeLiveRuntime": delegate["connected"],
+            "officialProduction": False,
+            "notes": "Uses Codex CLI as a delegated local bridge without reading auth.json or copying tokens.",
+        },
+        {
+            "organId": "aios_native.microcluster.organ",
+            "displayName": "AIOS Native Micro-Cores",
+            "reality": "aios_native_runtime",
+            "type": "native_micro_core",
+            "status": "available" if runtime_status["providers"].get("aios_native_runtime", {}).get("available") else "missing",
+            "modelSource": "aios_native",
+            "implementedCapabilities": ["identify", "capabilities", "generate"],
+            "contractCapabilities": ["identify", "capabilities", "generate", "verify"],
+            "canInvokeLiveRuntime": bool(runtime_status["providers"].get("aios_native_runtime", {}).get("available")),
+            "officialProduction": False,
+            "notes": "AIOS-owned session, Agent Room, memory and governance runtime.",
+        },
+    ]
+    for organ in SOVEREIGN_BETA_ORGANS:
+        artifact = sovereign_organ_artifact_status(organ["artifactPath"])
+        organs.append({
+            **organ,
+            "type": "beta_open_weight_organ",
+            "status": artifact["status"],
+            "artifact": artifact,
+            "implementedCapabilities": [] if not artifact["manifestPresent"] else organ["contractCapabilities"],
+            "canInvokeLiveRuntime": artifact["manifestPresent"],
+            "officialProduction": False,
+            "notes": "Specified by Sovereign plan; not treated as available until a local signed organ manifest exists.",
+        })
+    can_invoke = any(bool(organ.get("canInvokeLiveRuntime")) for organ in organs)
+    return {
+        "phase": "RC35_SOVEREIGN_CODEX_OS",
+        "product": "AIOS Codex OS",
+        "version": "1.1-sovereign-codex-plan-bridge",
+        "headline": "Cognitive OS for engineering missions with honest organ reality states.",
+        "cos": {
+            "version": "1.1",
+            "methods": ["Identify", "Capabilities", "Attest", "Lease", "Generate", "Patch", "Verify", "Reality", "DelegateStatus"],
+        },
+        "sep": {
+            "version": "0.9a",
+            "mode": "sovereign",
+            "allowDelegate": True,
+            "delegateWhitelist": ["codex.plan.core"],
+            "gpuBudgetSecPerMission": 1800,
+            "leaseMaxTtlSec": 600,
+            "policyRevision": "2026-05-A",
+        },
+        "policySentinel": {
+            "dslVersion": "0.3",
+            "rules": [
+                "allow organ:codex.plan.core role:developer",
+                "limit rate codex.plan.core per_minute 30",
+                "deny organ:codex.plan.core intent:plan_high_security",
+                "require verify_pass before merge",
+                "mask log .*api_key.*",
+            ],
+        },
+        "router": {
+            "routingRules": [
+                {"when": "intent.code && organ_available(codex_plan_core)", "use": "codex.plan.core"},
+                {"when": "intent.code", "use": "aios_code.beta.organ"},
+                {"when": "intent.ui || intent.vision", "use": "aios_multimodal.beta.organ"},
+                {"when": "intent.plan || intent.arch", "use": "aios_strategic.beta.organ"},
+                {"default": "aios_native.microcluster.organ"},
+            ],
+            "activeCodeOrgan": "codex.plan.core" if delegate["connected"] else "aios_native.microcluster.organ",
+        },
+        "organs": organs,
+        "canInvokeLiveRuntime": can_invoke,
+        "officialProduction": False,
+        "productionBlockedReason": "Sovereign local prototype is live-capable, but official production remains reserved for signed runtime binding and security signoff.",
+        "secretsExposed": False,
+    }
+
+
+@app.get("/runtime/sovereign/status")
+def sovereign_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    payload = sovereign_status_payload(db)
+    audit(db, user, "sovereign.status", payload["router"]["activeCodeOrgan"], {"secretsExposed": False})
+    return payload
+
+
+@app.get("/runtime/sovereign/delegate-status")
+def sovereign_delegate_status_endpoint(user: User = Depends(get_current_user)) -> dict:
+    _ = user
+    return sovereign_delegate_status()
+
+
 @app.get("/runtime/broker/providers")
 def runtime_broker_providers(user: User = Depends(get_current_user)) -> dict:
     return {
@@ -2067,10 +3129,11 @@ def runtime_broker_invoke(payload: RuntimeBrokerInvokeRequest, db: Session = Dep
     session = get_owned_session(db, user, payload.sessionId)
     status = runtime_broker_status(db)
     requested_provider = payload.provider.strip().lower() if payload.provider else "auto"
+    auto_requested = requested_provider == "auto"
     provider = status["recommendedProvider"] if requested_provider == "auto" else requested_provider
     if provider == "official_codex_runtime":
         raise HTTPException(status_code=409, detail="Use /codex/runtime/invoke for the official Codex adapter path after RC16 binding is active.")
-    if provider != "ollama_local_cloud":
+    if provider not in {"ollama_local_cloud", "community_wrapper_runtime", "codex_cli_local_developer", "openai_api_authorized", "aios_native_runtime"}:
         raise HTTPException(
             status_code=424,
             detail={
@@ -2079,12 +3142,12 @@ def runtime_broker_invoke(payload: RuntimeBrokerInvokeRequest, db: Session = Dep
                 "providers": status["providers"],
             },
         )
-    if not status["providers"]["ollama_local_cloud"]["available"]:
-        raise HTTPException(status_code=424, detail={"message": "Ollama runtime is not available.", "provider": status["providers"]["ollama_local_cloud"]})
+    if not status["providers"][provider]["available"]:
+        raise HTTPException(status_code=424, detail={"message": "Requested runtime provider is not available.", "provider": status["providers"][provider]})
 
     mesh = AIOSCognitiveRuntimeMesh()
-    ollama = ollama_adapter()
-    selected_model = payload.model or ollama.default_model
+    ollama = ollama_adapter() if provider == "ollama_local_cloud" else None
+    selected_model = payload.model or (ollama.default_model if ollama else str(status["providers"][provider].get("configuredModel") or "gpt-oss:20b"))
     job = QosJob(
         user_id=user.id,
         job_type="runtime.broker.invoke",
@@ -2097,36 +3160,83 @@ def runtime_broker_invoke(payload: RuntimeBrokerInvokeRequest, db: Session = Dep
     db.commit()
     db.refresh(job)
 
+    fallback_from_provider = ""
+    fallback_reason = ""
     try:
-        runtime_result = ollama.chat(mesh.build_messages(payload.objective, session.id), selected_model)
+        if provider == "community_wrapper_runtime":
+            runtime_result = community_runtime_chat_response(mesh.build_messages(payload.objective, session.id), selected_model)
+        elif provider == "aios_native_runtime":
+            runtime_result = aios_native_runtime_response(payload.objective, selected_model)
+        elif provider == "codex_cli_local_developer":
+            runtime_result = codex_cli_exec_response(payload.objective, selected_model)
+        elif provider == "openai_api_authorized":
+            settings = get_settings()
+            openai_adapter = OfficialCodexRuntimeAdapter(
+                settings.openai_base_url,
+                settings.openai_api_key,
+                provider="openai_api",
+                default_model=settings.openai_model,
+                project_id=settings.openai_project_id,
+                organization_id=settings.openai_organization_id,
+                max_output_tokens=settings.openai_max_output_tokens,
+                reasoning_effort=settings.openai_reasoning_effort,
+            )
+            openai_result = openai_adapter.invoke_responses(session.id, selected_model, payload.objective)
+            runtime_result = {
+                "model": openai_result["runtimeModelId"],
+                "requestedModel": selected_model,
+                "runtimeModelId": openai_result["runtimeModelId"],
+                "responseId": openai_result.get("responseId"),
+                "adapter": openai_result["adapter"],
+                "outputText": openai_result["outputText"],
+                "usageCaptured": openai_result["usageCaptured"],
+            }
+        else:
+            runtime_result = ollama.chat(mesh.build_messages(payload.objective, session.id), selected_model)
     except Exception as exc:
-        job.status = "failed"
-        job.result = json.dumps({"provider": provider, "model": selected_model, "error": redact(str(exc)), "networkCallPerformed": True})
-        job.completed_at = datetime.utcnow()
-        db.commit()
-        record_session_event(
-            db,
-            user,
-            session.id,
-            "codex.runtime.failed",
-            "runtime-broker",
-            "Runtime Broker invocation failed",
-            "Ollama runtime call failed.",
-            {"jobId": job.id, "provider": provider, "model": selected_model, "error": redact(str(exc))},
-        )
-        raise HTTPException(status_code=502, detail={"message": "Runtime Broker invocation failed.", "error": redact(str(exc))})
+        native_fallback_allowed = env_truthy("AIOS_ALLOW_NATIVE_FALLBACK")
+        if native_fallback_allowed and auto_requested and provider != "aios_native_runtime" and status["providers"].get("aios_native_runtime", {}).get("available"):
+            fallback_from_provider = provider
+            fallback_reason = redact(str(exc))
+            provider = "aios_native_runtime"
+            runtime_result = aios_native_runtime_response(payload.objective, selected_model)
+        else:
+            job.status = "failed"
+            job.result = json.dumps({"provider": provider, "model": selected_model, "error": redact(str(exc)), "networkCallPerformed": True})
+            job.completed_at = datetime.utcnow()
+            db.commit()
+            record_session_event(
+                db,
+                user,
+                session.id,
+                "codex.runtime.failed",
+                "runtime-broker",
+                "Runtime Broker invocation failed",
+                "Runtime Broker call failed.",
+                {"jobId": job.id, "provider": provider, "model": selected_model, "error": redact(str(exc))},
+            )
+            raise HTTPException(status_code=502, detail={"message": "Runtime Broker invocation failed.", "error": redact(str(exc))})
 
     quality_gate = mesh.quality_gate(runtime_result["outputText"])
     result = {
         "provider": provider,
         "model": runtime_result["model"],
+        "requestedModel": runtime_result.get("requestedModel", selected_model),
+        "runtimeModelId": runtime_result.get("runtimeModelId", runtime_result["model"]),
+        "responseId": runtime_result.get("responseId"),
         "runtimeClass": mesh.name,
         "adapter": runtime_result["adapter"],
         "outputText": runtime_result["outputText"],
-        "networkCallPerformed": True,
+        "networkCallPerformed": bool(runtime_result.get("networkCallPerformed", True)),
+        "secretsExposed": False,
+        "officialProduction": False,
+        "usageCaptured": runtime_result.get("usageCaptured", False),
         "qualityGate": quality_gate,
         "userVisibleUsage": {"productUnit": "codex_sessions", "visibleMeter": "none", "balanceShown": False},
     }
+    if fallback_from_provider:
+        result["fallbackFrom"] = fallback_from_provider
+        result["fallbackReason"] = fallback_reason
     job.status = "completed"
     job.result = json.dumps(redact(result))
     job.completed_at = datetime.utcnow()
@@ -2145,7 +3255,7 @@ def runtime_broker_invoke(payload: RuntimeBrokerInvokeRequest, db: Session = Dep
             "model": runtime_result["model"],
             "runtimeClass": mesh.name,
             "qualityGate": quality_gate,
-            "networkCallPerformed": True,
+            "networkCallPerformed": bool(runtime_result.get("networkCallPerformed", True)),
         },
     )
     audit(db, user, "runtime_broker.invoke.completed", job.id, {"sessionId": session.id, "provider": provider, "model": runtime_result["model"]})

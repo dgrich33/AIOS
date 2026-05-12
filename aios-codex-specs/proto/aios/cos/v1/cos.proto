@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package aios.cos.v1;
+
+service CognitiveOrganService {
+  rpc Identify(IdentifyRequest) returns (IdentifyResponse);
+  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  rpc Attest(AttestRequest) returns (AttestResponse);
+  rpc Lease(LeaseRequest) returns (LeaseResponse);
+  rpc Generate(stream GenerateRequest) returns (stream GenerateResponse);
+  rpc Patch(PatchRequest) returns (PatchResponse);
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+  rpc Reality(RealityRequest) returns (RealityResponse);
+  rpc DelegateStatus(DelegateStatusRequest) returns (DelegateStatusResponse);
+}
+
+message IdentifyRequest {}
+
+message IdentifyResponse {
+  string organ_id = 1;
+  string name = 2;
+  string version = 3;
+  string reality = 4;
+}
+
+message CapabilitiesRequest {}
+
+message CapabilitiesResponse {
+  repeated string capabilities = 1;
+}
+
+message AttestRequest {
+  bytes nonce = 1;
+}
+
+message AttestResponse {
+  string subject = 1;
+  string sha256 = 2;
+  string runtime = 3;
+}
+
+message LeaseRequest {
+  string mission_id = 1;
+  string role = 2;
+  uint32 ttl_seconds = 3;
+}
+
+message LeaseResponse {
+  string token_id = 1;
+  uint32 ttl_seconds = 2;
+}
+
+message GenerateRequest {
+  string mission_id = 1;
+  string prompt = 2;
+  bytes binary = 3;
+}
+
+message GenerateResponse {
+  string text = 1;
+  bytes binary = 2;
+  string event_type = 3;
+}
+
+message PatchRequest {
+  string mission_id = 1;
+  string unified_diff = 2;
+}
+
+message PatchResponse {
+  bool applied = 1;
+  string summary = 2;
+}
+
+message VerifyRequest {
+  string mission_id = 1;
+  repeated string commands = 2;
+}
+
+message VerifyResponse {
+  bool passed = 1;
+  repeated string logs = 2;
+}
+
+message RealityRequest {}
+
+message RealityResponse {
+  string reality = 1;
+  bool available = 2;
+  string build_id = 3;
+}
+
+message DelegateStatusRequest {}
+
+message DelegateStatusResponse {
+  bool connected = 1;
+  string cli_version = 2;
+  string plan = 3;
+}

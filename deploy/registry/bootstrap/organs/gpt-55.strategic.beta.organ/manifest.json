@@ -1,0 +1,21 @@
+{
+  "organ_id": "aios_strategic.beta.organ",
+  "file_name": "gpt-55.strategic.beta.organ",
+  "base_model": "strategic-open-weight-profile",
+  "reality": "beta_open_weight",
+  "capabilities": [
+    "identify",
+    "capabilities",
+    "attest",
+    "lease",
+    "generate"
+  ],
+  "name": "aios_strategic.beta.organ",
+  "version": "2026-05.rc35",
+  "createdAt": "2026-05-12T00:00:00+00:00",
+  "runtimeWasmSha256": "30d772bef611e75dd77453d17d678d3cb1aa5e4effe172f190c68daf4dd181ba",
+  "weightsSha256": "c57223d5257930ce64905e56fefee65b8f5158bdeaf37cd88c1be8b6365ab886",
+  "encryption": "local-bootstrap-xor-placeholder",
+  "replaceBeforeProduction": true,
+  "signature": "B1KIiAHl5QjOOIPmVX6ip1Q2LsPz4+210pAK4Nr91EA="
+}

@@ -1,3 +1,8 @@
+---
+name: snapshot.handoff
+description: Use when creating or documenting AIOS snapshots and handoff checkpoints after meaningful local work.
+---
+
 # Snapshot Handoff
 
 Use this skill when finishing a stable AIOS Codex work checkpoint.
@@ -25,4 +30,3 @@ Include:
 - changed files
 - validation state
 - next steps
-

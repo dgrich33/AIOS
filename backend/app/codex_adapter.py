@@ -189,7 +189,7 @@ class OfficialCodexRuntimeAdapter:
                 "product_unit": "codex_sessions",
             },
         }
-        if self.reasoning_effort:
+        if self.reasoning_effort and runtime_model.startswith(("gpt-5", "o")):
             body["reasoning"] = {"effort": self.reasoning_effort}
 
         headers = {

@@ -74,6 +74,16 @@ CODEX_MODELS = [
         "default_for": ["refactor", "migration", "module_extraction"],
         "status": "ready_for_adapter",
     },
+    {
+        "model_id": "gpt-oss-20b",
+        "name": "GPT OSS 20B",
+        "tier": "open-weight-20b",
+        "purpose": "self-hosted/local specialized reasoning and agentic development",
+        "runtime_provider": "self_hosted_runtime",
+        "available_in_unlimited": True,
+        "default_for": ["self_hosted", "local_developer", "presentation", "agentic_tasks", "low_latency"],
+        "status": "provider_validated",
+    },
 ]
 
 PLAN_FEATURES = [

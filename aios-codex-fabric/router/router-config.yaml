@@ -1,0 +1,24 @@
+version: "1.1-sovereign-codex-plan-bridge"
+organs:
+  strategic_core: aios_strategic.beta.organ
+  code_core: aios_code.beta.organ
+  multimodal_core: aios_multimodal.beta.organ
+  codex_plan_core: codex.plan.core.organ
+  native_micro: aios_native.microcluster.organ
+reality:
+  aios_strategic.beta.organ: beta_open_weight
+  aios_code.beta.organ: beta_open_weight
+  aios_multimodal.beta.organ: beta_open_weight
+  codex.plan.core.organ: codex_plan_bridge
+  aios_native.microcluster.organ: aios_native_runtime
+routing_rules:
+  - when: intent.code && organ_available(codex_plan_core)
+    use: codex_plan_core
+  - when: intent.code
+    use: code_core
+  - when: intent.ui || intent.vision
+    use: multimodal_core
+  - when: intent.plan || intent.arch
+    use: strategic_core
+  - default: native_micro
+

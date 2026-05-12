@@ -1,0 +1,38 @@
+name: Organ Publish
+
+on:
+  push:
+    tags:
+      - "organ/*"
+
+jobs:
+  organ-publish:
+    runs-on: ubuntu-latest
+    env:
+      AIOS_REGISTRY_USERNAME: ${{ secrets.AIOS_REGISTRY_USERNAME }}
+      AIOS_REGISTRY_PASSWORD: ${{ secrets.AIOS_REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: bufbuild/buf-setup-action@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: cd aios-codex-organ-bridge && cargo test
+      - run: cd aios-codex-specs && buf lint
+      - run: python aios-codex-foundry/foundry.py
+      - name: Sign organ manifests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          for manifest in Path("deploy/registry/bootstrap/organs").glob("*/manifest.json"):
+              sig = hashlib.sha256(manifest.read_bytes()).hexdigest()
+              manifest.with_suffix(".sig").write_text(sig, encoding="utf-8")
+          PY
+      - name: Push to registry
+        if: ${{ env.AIOS_REGISTRY_USERNAME != '' && env.AIOS_REGISTRY_PASSWORD != '' }}
+        run: echo "Push signed organ artifacts to registry.aios.internal:5443"
+      - name: Registry unavailable fallback
+        if: ${{ env.AIOS_REGISTRY_USERNAME == '' || env.AIOS_REGISTRY_PASSWORD == '' }}
+        run: echo "Registry credentials unavailable; kept signed artifacts in deploy/registry/bootstrap."

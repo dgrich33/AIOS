@@ -1,0 +1,37 @@
+{
+  "dslVersion": "0.3",
+  "source": "aios-codex-specs/policy/sentinel-default.v0.3.aiosdsl",
+  "rules": [
+    {
+      "kind": "allow",
+      "subject": "organ:codex.plan.core",
+      "qualifier": "role:*",
+      "value": ""
+    },
+    {
+      "kind": "deny",
+      "subject": "tool:TerminalRunner",
+      "qualifier": "cmd:rm-recursive",
+      "value": ""
+    },
+    {
+      "kind": "limit_rate",
+      "subject": "codex.plan.core",
+      "qualifier": "per_minute",
+      "value": "30"
+    },
+    {
+      "kind": "require",
+      "subject": "verify_pass",
+      "qualifier": "",
+      "value": "merge"
+    },
+    {
+      "kind": "mask",
+      "subject": "log",
+      "qualifier": "",
+      "value": ".*api_key.*"
+    }
+  ],
+  "ebpfMode": "manifest_only_until_kernel_loader_available"
+}
