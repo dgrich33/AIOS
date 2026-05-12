@@ -1,0 +1,13 @@
+[package]
+name = "aios-codex-organ-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "aios_codex_organ_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "aios-codex-organ-bridge"
+path = "src/main.rs"
+

@@ -1,3 +1,8 @@
+---
+name: aios-codex-unlimited
+description: Use when operating the local AIOS Codex Unlimited project, preserving session-based product rules and Workbench validation.
+---
+
 # AIOS Codex Unlimited
 
 Use this skill when operating the AIOS Codex Unlimited project.

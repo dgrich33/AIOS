@@ -1,0 +1,21 @@
+{
+  "organ_id": "aios_multimodal.beta.organ",
+  "file_name": "gpt-4o.multimodal.beta.organ",
+  "base_model": "multimodal-open-weight-profile",
+  "reality": "beta_open_weight",
+  "capabilities": [
+    "identify",
+    "capabilities",
+    "attest",
+    "lease",
+    "generate"
+  ],
+  "name": "aios_multimodal.beta.organ",
+  "version": "2026-05.rc35",
+  "createdAt": "2026-05-12T00:00:00+00:00",
+  "runtimeWasmSha256": "30d772bef611e75dd77453d17d678d3cb1aa5e4effe172f190c68daf4dd181ba",
+  "weightsSha256": "28fe5a060b00a4442eb5e13890ef83dd4be1d43ee384155c7f356c956d313340",
+  "encryption": "local-bootstrap-xor-placeholder",
+  "replaceBeforeProduction": true,
+  "signature": "sr3KJYFszVtqiuY3Voc9LcM7wLL0MvxlmjTBmX+cwhs="
+}

@@ -1,7 +1,13 @@
-import os
+﻿import os
 from pathlib import Path
+import hashlib
+import json
 
-os.environ["AIOS_DATABASE_URL"] = "sqlite:///./test_aios.db"
+TEST_DB_FILE = Path(f"test_aios_{os.getpid()}.db")
+for suffix in ("", "-wal", "-shm"):
+    Path(str(TEST_DB_FILE) + suffix).unlink(missing_ok=True)
+
+os.environ["AIOS_DATABASE_URL"] = f"sqlite:///./{TEST_DB_FILE.name}"
 os.environ["AIOS_REDIS_URL"] = ""
 
 import httpx  # noqa: E402
@@ -10,6 +16,52 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+def configure_scope_authority_fixture(monkeypatch, tmp_path) -> None:
+    root = tmp_path / "scope-root"
+    legal_dir = root / "docs" / "legal"
+    legal_dir.mkdir(parents=True)
+
+    contract_body = "\n".join(
+        [
+            "license.cert",
+            "aios_codex_unlimited",
+            "premium_unlimited",
+            "service_token_vault_kms_or_secure_runtime_bridge",
+            "codex-5.5-unlimited",
+            "codex-5.5-reasoning",
+            "codex-5.5-fast",
+            "codex-5.5-code-review",
+            "codex-5.5-refactor",
+            "escopo exclusivo",
+            "desbloqueado",
+            "OPENAI_EXEC_APPROVAL_PRIMARY_2026_05_09",
+            "OPENAI_EXEC_APPROVAL_AIOS_REP_2026_05_09",
+            "OpenAI",
+        ]
+    )
+    protected = [
+        ("docs/legal/11_PEDIDO_DE_ACESSO_OFICIAL_DE_INTEGRACAO.md", contract_body),
+        ("docs/AIOS_CODEX_UNLIMITED_BRIEFING_REUNIAO.md", contract_body),
+    ]
+    lock_files = []
+    for relative, content in protected:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        lock_files.append({"path": relative, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+
+    (root / "docs" / "CONTRACT_AUTHORITY.lock.json").write_text(
+        json.dumps({"generatedAt": "2026-05-12T00:00:00Z", "protectedFiles": lock_files}, indent=2),
+        encoding="utf-8",
+    )
+
+    license_file = tmp_path / "license.cert"
+    license_file.write_text("AIOS-CODEX-UNLIMITED-LOCAL-RC13-LICENSE", encoding="utf-8")
+    monkeypatch.setenv("AIOS_LICENSE_PATH", str(license_file))
+    monkeypatch.setattr("app.scope_authority.project_root", lambda: root)
+    get_settings.cache_clear()
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -750,7 +802,7 @@ def test_rc11_runtime_model_discovery_selects_available_openai_model(monkeypatch
         get_settings.cache_clear()
 
 
-def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatch) -> None:
+def test_rc21_runtime_broker_catalog_explainability_and_rc34_aios_native_live(monkeypatch) -> None:
     for name in [
         "AIOS_OFFICIAL_CODEX_RUNTIME_ENDPOINT",
         "AIOS_OFFICIAL_CODEX_SERVICE_TOKEN",
@@ -758,8 +810,16 @@ def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatc
         "AIOS_OFFICIAL_SANDBOX_ENVIRONMENT_ID",
         "AIOS_OFFICIAL_SANDBOX_SECRET_STORE",
         "AIOS_OFFICIAL_SANDBOX_LIVE_ENABLED",
+        "AIOS_COMMUNITY_RUNTIME_BASE_URL",
+        "AIOS_INFERENCE_BASE_URL",
+        "OPENAI_API_KEY",
+        "AIOS_ALLOW_CODEX_CLI_RUNTIME",
     ]:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "auto")
+    monkeypatch.setenv("AIOS_NATIVE_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("AIOS_NATIVE_RUNTIME_MODEL", "aios-native-fabric-v1")
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")
     get_settings.cache_clear()
@@ -782,8 +842,11 @@ def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatc
             provider_ids = [item["providerId"] for item in catalog_payload["providers"]]
             assert provider_ids == [
                 "official_codex_runtime",
+                "aios_native_runtime",
                 "codex_delegated",
                 "aios_cloud_runtime",
+                "community_wrapper_runtime",
+                "codex_cli_local_developer",
                 "openai_api_authorized",
                 "puter_user_pays_browser",
                 "github_models_demo",
@@ -794,9 +857,13 @@ def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatc
                 "controlled_simulator",
             ]
             official = catalog_payload["providers"][0]
+            native = catalog_payload["providers"][1]
             simulator = catalog_payload["providers"][-1]
             assert official["officialRuntime"] is True
             assert official["liveRuntimeGate"] == "runtime_binding_active"
+            assert native["providerId"] == "aios_native_runtime"
+            assert native["officialRuntime"] is False
+            assert native["canClaimLiveRuntime"] is True
             assert simulator["officialRuntime"] is False
             assert simulator["canClaimLiveRuntime"] is False
 
@@ -804,15 +871,19 @@ def test_rc21_runtime_broker_catalog_explainability_and_no_false_live(monkeypatc
             assert status.status_code == 200
             status_payload = status.json()
             assert status_payload["phase"] == "RC21_RUNTIME_BROKER_2"
-            assert status_payload["canInvokeLiveRuntime"] is False
-            assert status_payload["liveRuntimeProvider"] == ""
-            assert status_payload["recommendedProvider"] == "puter_user_pays_browser"
+            assert status_payload["canInvokeLiveRuntime"] is True
+            assert status_payload["liveRuntimeProvider"] == "aios_native_runtime"
+            assert status_payload["recommendedProvider"] == "aios_native_runtime"
             assert status_payload["providerOrder"] == provider_ids
             for provider_id, provider_status in status_payload["providers"].items():
-                if provider_id != "official_codex_runtime":
+                if provider_id not in {"official_codex_runtime", "aios_native_runtime"}:
                     assert provider_status["canInvokeLiveRuntime"] is False
             assert status_payload["providers"]["official_codex_runtime"]["canInvokeLiveRuntime"] is False
-            assert status_payload["selection"]["reasonCode"] == "browser_user_pays_available"
+            assert status_payload["providers"]["aios_native_runtime"]["canInvokeLiveRuntime"] is True
+            assert status_payload["providers"]["aios_native_runtime"]["apiKeyRequired"] is False
+            assert status_payload["providers"]["aios_native_runtime"]["authJsonRead"] is False
+            assert status_payload["providers"]["aios_native_runtime"]["endpointRequired"] is False
+            assert status_payload["selection"]["reasonCode"] == "aios_native_runtime_available"
             assert status_payload["secretsExposed"] is False
 
             explanation = client.get("/runtime/broker/explain?provider=codex_delegated", headers=headers)
@@ -922,7 +993,8 @@ def test_rc24_approval_gate_records_human_decision_without_executing_action() ->
         assert "approval_gate.approved" in actions
 
 
-def test_rc25_final_readiness_separates_release_candidate_from_production_binding() -> None:
+def test_rc25_final_readiness_separates_release_candidate_from_production_binding(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
     with TestClient(app) as client:
         headers = auth_headers(client)
 
@@ -936,12 +1008,15 @@ def test_rc25_final_readiness_separates_release_candidate_from_production_bindin
         assert payload["readyForLocalDemo"] is True
         assert payload["readyForPublicPackage"] is True
         assert payload["readyForProduction"] is False
-        assert payload["productionState"] == "blocked_until_official_runtime_binding"
+        assert payload["productionState"] == "local_demo_live_official_production_blocked"
+        assert payload["localDemoRuntimeState"] == "live"
         assert payload["secretsExposed"] is False
         assert payload["userVisibleMeter"] == "none"
         assert payload["package"]["script"] == "scripts/rc25-package.ps1"
         assert payload["package"]["includesPrivateCodexArtifacts"] is False
-        assert payload["runtime"]["canInvokeLiveRuntime"] is False
+        assert payload["runtime"]["canInvokeLiveRuntime"] is True
+        assert payload["runtime"]["officialCanInvokeLiveRuntime"] is False
+        assert payload["runtime"]["liveRuntimeProvider"] == "aios_native_runtime"
         assert "official_runtime_binding" in payload["blockingItems"]
         criterion_ids = {item["id"] for item in payload["criteria"]}
         assert {
@@ -993,9 +1068,523 @@ def test_rc12_runtime_broker_reports_ollama_provider_without_required_secret(mon
         get_settings.cache_clear()
 
 
+def test_rc31_private_community_wrapper_status_redacts_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "local_developer")
+    monkeypatch.setenv("AIOS_ALLOW_COMMUNITY_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_BASE_URL", "http://community-wrapper.local/v1")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_MODEL_ID", "gpt-4o")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_API_KEY", "sk-community-secret")
+    get_settings.cache_clear()
+
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            response = client.get("/runtime/community-wrapper/status", headers=headers)
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["providerId"] == "community_wrapper_runtime"
+            assert payload["status"] == "ready"
+            assert payload["canInvokeLiveRuntime"] is True
+            assert payload["officialProduction"] is False
+            assert payload["secretsExposed"] is False
+            assert payload["credentialPresent"] is True
+            assert payload["baseUrlRedacted"] == "http://community-wrapper.local/v1"
+            assert "sk-community-secret" not in str(payload)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc31_runtime_broker_invokes_community_wrapper_and_records_live_provider(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_COMMUNITY_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "community_wrapper_runtime")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_BASE_URL", "http://community-wrapper.local/v1")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_MODEL_ID", "gpt-4o")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_API_KEY", "sk-community-secret")
+    get_settings.cache_clear()
+    captured: dict[str, object] = {}
+
+    class FakeCommunityResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "model": "gpt-4o",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Runtime real privado respondeu via wrapper comunitario.",
+                        }
+                    }
+                ],
+            }
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_get(self, url, *args, **kwargs)
+        raise httpx.ConnectError("ollama is not running")
+
+    def fake_post(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_post(self, url, *args, **kwargs)
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        captured["headers"] = kwargs.get("headers")
+        return FakeCommunityResponse()
+
+    original_get = httpx.Client.get
+    original_post = httpx.Client.post
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            status_payload = status.json()
+            assert status_payload["recommendedProvider"] == "community_wrapper_runtime"
+            assert status_payload["liveRuntimeProvider"] == "community_wrapper_runtime"
+            assert status_payload["canInvokeLiveRuntime"] is True
+            assert status_payload["providers"]["community_wrapper_runtime"]["officialProduction"] is False
+            assert "sk-community-secret" not in str(status_payload)
+
+            session = client.post("/sessions", headers=headers, json={"title": "RC31 Community Wrapper", "objective": "Invoke private wrapper"}).json()
+            response = client.post(
+                "/runtime/broker/invoke",
+                headers=headers,
+                json={
+                    "sessionId": session["id"],
+                    "objective": "Criar uma resposta curta para demo AIOS.",
+                    "provider": "auto",
+                    "intelligenceMode": "aios_cognitive_runtime_mesh",
+                },
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["provider"] == "community_wrapper_runtime"
+            assert payload["model"] == "gpt-4o"
+            assert payload["networkCallPerformed"] is True
+            assert "Runtime real privado" in payload["outputText"]
+            assert "sk-community-secret" not in str(payload)
+            assert captured["url"] == "http://community-wrapper.local/v1/chat/completions"
+            assert captured["json"]["model"] == "gpt-4o"
+            assert captured["headers"]["Authorization"] == "Bearer sk-community-secret"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc34_runtime_broker_invokes_authorized_openai_api_without_exposing_key(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_OPENAI_API_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "openai_api_authorized")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "product-owner-test-key-redacted")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o")
+    get_settings.cache_clear()
+
+    captured: dict[str, object] = {}
+
+    class FakeOpenAIResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "id": "resp_product_owner_demo",
+                "status": "completed",
+                "output_text": "AIOS Product Owner runtime respondeu com OpenAI API autorizada.",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_get(self, url, *args, **kwargs)
+        raise httpx.ConnectError("ollama is not running")
+
+    def fake_post(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_post(self, url, *args, **kwargs)
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        captured["headers"] = kwargs.get("headers")
+        return FakeOpenAIResponse()
+
+    original_get = httpx.Client.get
+    original_post = httpx.Client.post
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            status_payload = status.json()
+            assert status_payload["recommendedProvider"] == "openai_api_authorized"
+            assert status_payload["liveRuntimeProvider"] == "openai_api_authorized"
+            assert status_payload["canInvokeLiveRuntime"] is True
+            assert status_payload["providers"]["openai_api_authorized"]["officialProduction"] is False
+            assert "product-owner-test-key-redacted" not in str(status_payload)
+
+            session = client.post("/sessions", headers=headers, json={"title": "RC34 Product Owner", "objective": "Invoke OpenAI API authorized"}).json()
+            response = client.post(
+                "/runtime/broker/invoke",
+                headers=headers,
+                json={
+                    "sessionId": session["id"],
+                    "objective": "Responda em uma frase curta para a demo.",
+                    "provider": "openai_api_authorized",
+                    "model": "gpt-4o",
+                    "intelligenceMode": "aios_cognitive_runtime_mesh",
+                },
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["provider"] == "openai_api_authorized"
+            assert payload["model"] == "gpt-4o"
+            assert payload["runtimeModelId"] == "gpt-4o"
+            assert payload["networkCallPerformed"] is True
+            assert payload["officialProduction"] is False
+            assert "Product Owner runtime" in payload["outputText"]
+            assert "product-owner-test-key-redacted" not in str(payload)
+            assert captured["url"] == "https://api.openai.com/v1/responses"
+            assert captured["json"]["model"] == "gpt-4o"
+            assert captured["headers"]["Authorization"] == "Bearer product-owner-test-key-redacted"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc34_runtime_broker_invokes_codex_cli_local_developer(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_CODEX_CLI_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "codex_cli_local_developer")
+    get_settings.cache_clear()
+    captured: dict[str, object] = {}
+
+    class FakeCompletedProcess:
+        def __init__(self, stdout: str):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    def fake_run(args, *_, **__):  # noqa: ANN001
+        captured["args"] = args
+        if "--version" in args:
+            return FakeCompletedProcess("codex-cli 0.130.0-alpha.5")
+        return FakeCompletedProcess(
+            '\n'.join(
+                [
+                    '{"type":"thread.started","thread_id":"test"}',
+                    '{"type":"turn.started"}',
+                    '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"AIOS Codex CLI local respondeu vivo."}}',
+                    '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+                ]
+            )
+        )
+
+    monkeypatch.setattr("app.main.resolve_codex_cli_command", lambda: "codex")
+    monkeypatch.setattr("app.main.subprocess.run", fake_run)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            status_payload = status.json()
+            assert status_payload["recommendedProvider"] == "codex_cli_local_developer"
+            assert status_payload["liveRuntimeProvider"] == "codex_cli_local_developer"
+            assert status_payload["providers"]["codex_cli_local_developer"]["canInvokeLiveRuntime"] is True
+            assert status_payload["providers"]["codex_cli_local_developer"]["authJsonRead"] is False
+            assert "C:\\Users" not in str(status_payload)
+
+            session = client.post("/sessions", headers=headers, json={"title": "RC34 Codex CLI", "objective": "Invoke Codex CLI"}).json()
+            response = client.post(
+                "/runtime/broker/invoke",
+                headers=headers,
+                json={
+                    "sessionId": session["id"],
+                    "objective": "Responda em uma frase curta para a demo Codex CLI.",
+                    "provider": "codex_cli_local_developer",
+                    "model": "gpt-5.2-codex",
+                    "intelligenceMode": "aios_cognitive_runtime_mesh",
+                },
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["provider"] == "codex_cli_local_developer"
+            assert payload["model"] == "gpt-5.2-codex"
+            assert payload["networkCallPerformed"] is True
+            assert "Codex CLI local" in payload["outputText"]
+            assert "--model" in captured["args"]
+            assert "C:\\Users" not in str(payload)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc34_codex_cli_runtime_uses_explicit_local_path_when_path_lookup_fails(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_CODEX_CLI_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_CODEX_CLI_PATH", r"C:\Users\owner\AppData\Local\OpenAI\Codex\bin\codex.exe")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "codex_cli_local_developer")
+    get_settings.cache_clear()
+    captured: dict[str, object] = {}
+
+    class FakeCompletedProcess:
+        def __init__(self, stdout: str):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    monkeypatch.setattr("app.main.shutil.which", lambda _: None)
+
+    def fake_path_exists(self):  # noqa: ANN001
+        return str(self).endswith("codex.exe")
+
+    def fake_run(args, *_, **__):  # noqa: ANN001
+        captured["args"] = args
+        if "--version" in args:
+            return FakeCompletedProcess("codex-cli 0.130.0-alpha.5")
+        return FakeCompletedProcess('{"item":{"type":"agent_message","text":"AIOS explicit path OK"}}')
+
+    monkeypatch.setattr("app.main.Path.exists", fake_path_exists)
+    monkeypatch.setattr("app.main.subprocess.run", fake_run)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            assert status.json()["providers"]["codex_cli_local_developer"]["canInvokeLiveRuntime"] is True
+
+            session = client.post("/sessions", headers=headers, json={"title": "Explicit codex path", "objective": "test"}).json()
+            response = client.post(
+                "/runtime/broker/invoke",
+                headers=headers,
+                json={
+                    "sessionId": session["id"],
+                    "objective": "Responda OK",
+                    "provider": "codex_cli_local_developer",
+                    "model": "gpt-5.5",
+                    "intelligenceMode": "aios_cognitive_runtime_mesh",
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["outputText"] == "AIOS explicit path OK"
+            assert captured["args"][0].endswith("codex.exe")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc34_owner_model_lab_probe_returns_clean_unsupported_model_error(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_CODEX_CLI_RUNTIME", "true")
+    get_settings.cache_clear()
+
+    class FakeCompletedProcess:
+        def __init__(self, returncode: int, stdout: str = "", stderr: str = ""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    monkeypatch.setattr("app.main.resolve_codex_cli_command", lambda: "codex")
+
+    def fake_run(args, *_, **__):  # noqa: ANN001
+        if "--version" in args:
+            return FakeCompletedProcess(0, stdout="codex-cli 0.130.0-alpha.5")
+        return FakeCompletedProcess(
+            1,
+            stderr="{\"error\":{\"message\":\"The 'gpt-4o' model is not supported when using Codex with a ChatGPT account.\"}}",
+        )
+
+    monkeypatch.setattr("app.main.subprocess.run", fake_run)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            response = client.post(
+                "/runtime/owner/model-lab/probe",
+                headers=headers,
+                json={"providerId": "codex_cli_local_developer", "modelId": "gpt-4o", "prompt": "Responda OK"},
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "unsupported_or_failed"
+            assert payload["providerId"] == "codex_cli_local_developer"
+            assert payload["modelId"] == "gpt-4o"
+            assert "not supported" in payload["validationSummary"]
+            assert "Enable JavaScript" not in payload["validationSummary"]
+            assert payload["secretsExposed"] is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc35_sovereign_status_exposes_codex_plan_core_without_auth_json(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_ALLOW_CODEX_CLI_RUNTIME", "true")
+    get_settings.cache_clear()
+
+    class FakeCompletedProcess:
+        def __init__(self, stdout: str):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    monkeypatch.setattr("app.main.resolve_codex_cli_command", lambda: "codex")
+    monkeypatch.setattr("app.main.subprocess.run", lambda *_, **__: FakeCompletedProcess("codex-cli 0.130.0-alpha.5"))
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            response = client.get("/runtime/sovereign/status", headers=headers)
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["phase"] == "RC35_SOVEREIGN_CODEX_OS"
+            assert payload["cos"]["version"] == "1.1"
+            assert payload["sep"]["allowDelegate"] is True
+            assert payload["router"]["activeCodeOrgan"] == "codex.plan.core"
+            codex_plan = next(organ for organ in payload["organs"] if organ["organId"] == "codex.plan.core")
+            assert codex_plan["status"] == "available"
+            assert codex_plan["delegateStatus"]["connected"] is True
+            assert codex_plan["delegateStatus"]["readsAuthJson"] is False
+            assert codex_plan["delegateStatus"]["copiesTokens"] is False
+            assert payload["secretsExposed"] is False
+            assert "auth.json" not in str(codex_plan["delegateStatus"]).lower()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc34_aios_native_runtime_invokes_without_api_key_auth_json_or_endpoint(monkeypatch) -> None:
+    for name in [
+        "OPENAI_API_KEY",
+        "AIOS_ALLOW_CODEX_CLI_RUNTIME",
+        "AIOS_COMMUNITY_RUNTIME_BASE_URL",
+        "AIOS_INFERENCE_BASE_URL",
+        "AIOS_OFFICIAL_CODEX_RUNTIME_ENDPOINT",
+        "AIOS_OFFICIAL_CODEX_SERVICE_TOKEN",
+        "AIOS_OFFICIAL_CODEX_TENANT_ID",
+        "AIOS_OFFICIAL_SANDBOX_ENVIRONMENT_ID",
+        "AIOS_OFFICIAL_SANDBOX_SECRET_STORE",
+        "AIOS_OFFICIAL_SANDBOX_LIVE_ENABLED",
+    ]:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIOS_ENV", "presentation")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "aios_native_runtime")
+    monkeypatch.setenv("AIOS_NATIVE_RUNTIME_ENABLED", "true")
+    monkeypatch.setenv("AIOS_NATIVE_RUNTIME_MODEL", "aios-native-fabric-v1")
+    get_settings.cache_clear()
+
+    def fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        if str(url).startswith("/"):
+            return original_get(self, url, *args, **kwargs)
+        raise httpx.ConnectError("external runtime is disabled for this test")
+
+    original_get = httpx.Client.get
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            status = client.get("/runtime/broker/status", headers=headers)
+            assert status.status_code == 200
+            status_payload = status.json()
+            assert status_payload["recommendedProvider"] == "aios_native_runtime"
+            assert status_payload["liveRuntimeProvider"] == "aios_native_runtime"
+            assert status_payload["canInvokeLiveRuntime"] is True
+            native = status_payload["providers"]["aios_native_runtime"]
+            assert native["apiKeyRequired"] is False
+            assert native["authJsonRead"] is False
+            assert native["endpointRequired"] is False
+            assert native["officialProduction"] is False
+            assert native["secretsExposed"] is False
+
+            session = client.post("/sessions", headers=headers, json={"title": "RC34 AIOS Native", "objective": "Invoke AIOS Native"}).json()
+            response = client.post(
+                "/runtime/broker/invoke",
+                headers=headers,
+                json={
+                    "sessionId": session["id"],
+                    "objective": "Mostre que o AIOS funciona sem API key.",
+                    "provider": "aios_native_runtime",
+                    "model": "gpt-5.2-codex",
+                    "intelligenceMode": "aios_cognitive_runtime_mesh",
+                },
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["provider"] == "aios_native_runtime"
+            assert payload["model"] == "gpt-5.2-codex"
+            assert payload["runtimeModelId"] == "aios-native-fabric-v1"
+            assert payload["networkCallPerformed"] is False
+            assert payload["officialProduction"] is False
+            assert "AIOS Native Runtime respondeu localmente" in payload["outputText"]
+            assert "nao como checkpoint/modelo proprietario" in payload["outputText"]
+            assert "OPENAI_API_KEY" not in str(payload)
+            assert payload["secretsExposed"] is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_rc32_gpt_oss_20b_is_registered_for_real_self_hosted_runtime(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        headers = auth_headers(client)
+        response = client.get("/codex/models", headers=headers)
+        assert response.status_code == 200
+        models = response.json()
+        gpt_oss = next((item for item in models if item["modelId"] == "gpt-oss-20b"), None)
+        assert gpt_oss is not None
+        assert gpt_oss["runtimeProvider"] == "self_hosted_runtime"
+        assert gpt_oss["status"] == "provider_validated"
+        assert gpt_oss["availableInUnlimited"] is True
+        assert "self_hosted" in gpt_oss["defaultFor"]
+
+        preflight = client.post(
+            "/scope/preflight",
+            headers=headers,
+            json={
+                "operation": "codex.runtime.invoke",
+                "environment": "sandbox",
+                "modelId": "gpt-oss-20b",
+                "requiresLiveRuntime": False,
+                "requiresRestrictedArtifacts": False,
+                "reason": "Validate GPT OSS 20B registry route",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.json()["scopeDecision"] == "allow"
+
+
+def test_rc32_community_wrapper_reports_gpt_oss_20b_profiles_without_secret_exposure(monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_ENV", "local_developer")
+    monkeypatch.setenv("AIOS_ALLOW_COMMUNITY_RUNTIME", "true")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_MODEL_ID", "gpt-oss:20b")
+    monkeypatch.setenv("AIOS_COMMUNITY_RUNTIME_API_KEY", "local-secret")
+    get_settings.cache_clear()
+    try:
+        with TestClient(app) as client:
+            headers = auth_headers(client)
+            response = client.get("/runtime/community-wrapper/status", headers=headers)
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["modelId"] == "gpt-oss:20b"
+            assert payload["canInvokeLiveRuntime"] is True
+            assert "gpt-oss-20b" in payload["supportedModelProfiles"]
+            assert "qwen2.5-coder-1.5b" in payload["supportedModelProfiles"]
+            assert "openai/gpt-oss-20b" in payload["providerModelAliases"]
+            assert "gpt-oss:20b" in payload["providerModelAliases"]
+            assert "qwen2.5-coder:1.5b" in payload["providerModelAliases"]
+            assert "local-secret" not in str(payload)
+            assert payload["secretsExposed"] is False
+    finally:
+        get_settings.cache_clear()
+
+
 def test_rc12_runtime_broker_invokes_ollama_and_records_cognitive_mesh_event(monkeypatch) -> None:
     monkeypatch.setenv("AIOS_OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setenv("AIOS_OLLAMA_MODEL", "deepseek-v4-pro:cloud")
+    monkeypatch.setenv("AIOS_CHAT_PROVIDER", "ollama_local_cloud")
+    monkeypatch.setenv("AIOS_NATIVE_RUNTIME_ENABLED", "false")
     get_settings.cache_clear()
     captured: dict[str, object] = {}
 
@@ -1134,7 +1723,8 @@ def test_rc13_license_status_accepts_pre_authorized_local_license(monkeypatch, t
         get_settings.cache_clear()
 
 
-def test_rc14_scope_authority_reads_license_contracts_and_signature_evidence() -> None:
+def test_rc14_scope_authority_reads_license_contracts_and_signature_evidence(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
     with TestClient(app) as client:
         headers = auth_headers(client)
         response = client.get("/scope/authority", headers=headers)
@@ -1154,7 +1744,8 @@ def test_rc14_scope_authority_reads_license_contracts_and_signature_evidence() -
         assert payload["secretsExposed"] is False
 
 
-def test_rc15_scope_preflight_authorizes_scoped_runtime_and_reports_binding_state() -> None:
+def test_rc15_scope_preflight_authorizes_scoped_runtime_and_reports_binding_state(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
     with TestClient(app) as client:
         headers = auth_headers(client)
         response = client.post(
@@ -1203,7 +1794,8 @@ def test_rc15_scope_preflight_blocks_unapproved_model() -> None:
         assert payload["secretsExposed"] is False
 
 
-def test_rc16_runtime_binding_status_reports_missing_secure_binding_without_exposing_secret() -> None:
+def test_rc16_runtime_binding_status_reports_missing_secure_binding_without_exposing_secret(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
     with TestClient(app) as client:
         headers = auth_headers(client)
         response = client.get("/runtime/binding/status", headers=headers)
@@ -1221,7 +1813,8 @@ def test_rc16_runtime_binding_status_reports_missing_secure_binding_without_expo
         assert "OPENAI_API_KEY" not in str(payload.get("credential", {}).get("secretPreview", ""))
 
 
-def test_rc16_runtime_binding_status_allows_live_openai_api_when_secure_flags_exist(monkeypatch) -> None:
+def test_rc16_runtime_binding_status_allows_live_openai_api_when_secure_flags_exist(monkeypatch, tmp_path) -> None:
+    configure_scope_authority_fixture(monkeypatch, tmp_path)
     monkeypatch.setenv("AIOS_OFFICIAL_SANDBOX_PROVIDER", "openai_api")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-rc16-secret")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
@@ -1273,6 +1866,5 @@ def test_redacted_export_masks_sensitive_values() -> None:
 
 def teardown_module() -> None:
     engine.dispose()
-    db_file = Path("test_aios.db")
-    if db_file.exists():
-        db_file.unlink()
+    for suffix in ("", "-wal", "-shm"):
+        Path(str(TEST_DB_FILE) + suffix).unlink(missing_ok=True)

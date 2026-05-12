@@ -7,6 +7,7 @@ import type {
   CodexDelegatedAuthStatus,
   CodexProductManifest,
   CodexSession,
+  CommunityWrapperStatus,
   ControlPlaneStatus,
   ContextIndexInfo,
   Entitlement,
@@ -19,6 +20,8 @@ import type {
   LegacyAiosSummary,
   QosJob,
   OfficialIntegrationReadiness,
+  OwnerModelLab,
+  OwnerModelProbeResult,
   OfficialSandboxActivation,
   OfficialSandboxSecurityCheck,
   NoDeveloperCostProviderCatalog,
@@ -38,6 +41,7 @@ import type {
   SkillStoreItem,
   Snapshot,
   SubscriptionInfo,
+  SovereignStatus,
   WindowsReleaseManifest,
   WorkbenchState,
 } from './types';
@@ -65,7 +69,13 @@ type ApiContextValue = {
   runtimeBrokerProviders: () => Promise<{ phase: string; productUnit: string; providers: RuntimeBrokerProvider[] }>;
   runtimeBrokerStatus: () => Promise<RuntimeBrokerStatus>;
   runtimeBrokerExplain: (provider?: string) => Promise<RuntimeBrokerExplanation>;
-  runtimeBrokerInvoke: (sessionId: string, objective: string, provider?: string) => Promise<Record<string, unknown>>;
+  runtimeBrokerInvoke: (sessionId: string, objective: string, provider?: string, model?: string) => Promise<Record<string, unknown>>;
+  ownerModelLab: () => Promise<OwnerModelLab>;
+  ownerModelProbe: (providerId: string, modelId: string, prompt: string, timeoutSeconds?: number) => Promise<OwnerModelProbeResult>;
+  sovereignStatus: () => Promise<SovereignStatus>;
+  sovereignDelegateStatus: () => Promise<Record<string, unknown>>;
+  communityWrapperStatus: () => Promise<CommunityWrapperStatus>;
+  communityWrapperValidate: (runSmokeTest?: boolean, prompt?: string) => Promise<CommunityWrapperStatus>;
   codexDelegatedAuthStatus: () => Promise<CodexDelegatedAuthStatus>;
   approvalGatePolicy: () => Promise<ApprovalGatePolicy>;
   createApprovalGateRequest: (input: { sessionId?: string; operation: string; target?: string; reason: string; preview?: Record<string, unknown> }) => Promise<ApprovalGateRequest>;
@@ -127,12 +137,34 @@ type ApiContextValue = {
 const ApiContext = createContext<ApiContextValue | null>(null);
 const API_URL = import.meta.env.VITE_AIOS_API_URL ?? 'http://localhost:8000';
 
+class ApiRequestError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 async function parseResponse(response: Response) {
   const contentType = response.headers.get('content-type') ?? '';
   const payload = contentType.includes('application/json') ? await response.json() : await response.text();
   if (!response.ok) {
-    const message = typeof payload === 'string' ? payload : payload.detail ?? 'API request failed';
-    throw new Error(message);
+    const detail = typeof payload === 'object' && payload && 'detail' in payload ? (payload as { detail?: unknown }).detail : undefined;
+    let message = typeof payload === 'string' ? payload : typeof detail === 'string' ? detail : '';
+    if (!message && detail && typeof detail === 'object') {
+      const detailObject = detail as { message?: unknown; error?: unknown };
+      const pieces = [detailObject.message, detailObject.error]
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+      message = pieces.join(' - ');
+    }
+    if (!message) {
+      message = 'API request failed';
+    }
+    throw new ApiRequestError(message, response.status, payload);
   }
   return payload;
 }
@@ -154,6 +186,12 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       });
       return await parseResponse(response);
     } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        localStorage.removeItem('aios.token');
+        setToken('');
+        setApiError('Sessao expirada ou invalida. Entre novamente para continuar.');
+        throw error;
+      }
       const message = error instanceof Error ? error.message : 'Unknown API error';
       setApiError(message);
       throw error;
@@ -174,10 +212,12 @@ export function ApiProvider({ children }: { children: ReactNode }) {
         const payload = await parseResponse(response);
         localStorage.setItem('aios.token', payload.accessToken);
         setToken(payload.accessToken);
+        setApiError('');
       },
       logout() {
         localStorage.removeItem('aios.token');
         setToken('');
+        setApiError('');
       },
       getEntitlement: () => request('/entitlement/me'),
       getControlPlane: () => request('/control-plane/status'),
@@ -198,8 +238,16 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       runtimeBrokerProviders: () => request('/runtime/broker/providers'),
       runtimeBrokerStatus: () => request('/runtime/broker/status'),
       runtimeBrokerExplain: (provider = 'auto') => request(`/runtime/broker/explain?provider=${encodeURIComponent(provider)}`),
-      runtimeBrokerInvoke: (sessionId, objective, provider = 'auto') =>
-        request('/runtime/broker/invoke', { method: 'POST', body: JSON.stringify({ sessionId, objective, provider, intelligenceMode: 'aios_cognitive_runtime_mesh' }) }),
+      runtimeBrokerInvoke: (sessionId, objective, provider = 'auto', model = '') =>
+        request('/runtime/broker/invoke', { method: 'POST', body: JSON.stringify({ sessionId, objective, provider, model: model || undefined, intelligenceMode: 'aios_cognitive_runtime_mesh' }) }),
+      ownerModelLab: () => request('/runtime/owner/model-lab'),
+      ownerModelProbe: (providerId, modelId, prompt, timeoutSeconds = 120) =>
+        request('/runtime/owner/model-lab/probe', { method: 'POST', body: JSON.stringify({ providerId, modelId, prompt, timeoutSeconds }) }),
+      sovereignStatus: () => request('/runtime/sovereign/status'),
+      sovereignDelegateStatus: () => request('/runtime/sovereign/delegate-status'),
+      communityWrapperStatus: () => request('/runtime/community-wrapper/status'),
+      communityWrapperValidate: (runSmokeTest = false, prompt = 'Responda em uma frase curta que o runtime privado esta ativo.') =>
+        request('/runtime/community-wrapper/validate', { method: 'POST', body: JSON.stringify({ runSmokeTest, prompt, timeoutSeconds: 45 }) }),
       codexDelegatedAuthStatus: () => request('/codex/delegated-auth/status'),
       approvalGatePolicy: () => request('/approval-gate/policy'),
       createApprovalGateRequest: (input) =>

@@ -10,8 +10,15 @@ out/
 .env
 .env.*
 !.env.example
+!.env.local.private.example
 *.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
 logs/
+.aios-runtime/
+.run/
 aios_dev.db
 aios_dev.db-*
 test_aios.db

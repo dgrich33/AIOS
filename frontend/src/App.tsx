@@ -31,6 +31,7 @@ import type {
   CodexDelegatedAuthStatus,
   CodexProductManifest,
   CodexSession,
+  CommunityWrapperStatus,
   ControlPlaneStatus,
   ContextIndexInfo,
   Entitlement,
@@ -42,6 +43,8 @@ import type {
   LicenseStatus,
   LegacyAiosSummary,
   OfficialIntegrationReadiness,
+  OwnerModelLab,
+  OwnerModelProbeResult,
   OfficialSandboxActivation,
   OfficialSandboxSecurityCheck,
   NoDeveloperCostProvider,
@@ -60,6 +63,7 @@ import type {
   ScopePreflight,
   Snapshot,
   SubscriptionInfo,
+  SovereignStatus,
   SkillStoreItem,
   WindowsReleaseManifest,
   WorkbenchState,
@@ -90,6 +94,39 @@ type SpeechRecognitionLike = {
 const PUTER_SCRIPT_ID = 'puter-js-v2';
 
 let puterScriptPromise: Promise<void> | null = null;
+
+const AGENT_ROOM_OPTIONS = [
+  {
+    id: 'aios_assistant',
+    label: 'AIOS Assistant',
+    role: 'Chat geral para testar o AIOS e explicar o que esta funcionando.',
+  },
+  {
+    id: 'architect',
+    label: 'Architect Agent',
+    role: 'Planeja arquitetura, escopo, riscos e proximas etapas antes de implementar.',
+  },
+  {
+    id: 'builder',
+    label: 'Builder Agent',
+    role: 'Transforma o pedido em passos executaveis e patches pequenos.',
+  },
+  {
+    id: 'debugger',
+    label: 'Debugger Agent',
+    role: 'Investiga erro, reproduz causa e sugere correcao verificavel.',
+  },
+  {
+    id: 'reviewer',
+    label: 'Reviewer Agent',
+    role: 'Revisa diffs, riscos, regressao e criterios de aceite.',
+  },
+  {
+    id: 'docs',
+    label: 'Docs Agent',
+    role: 'Gera explicacao, handoff e instrucoes simples de teste.',
+  },
+];
 
 function loadPuterScript() {
   if (window.puter?.ai?.chat) {
@@ -153,6 +190,11 @@ type PanelState = {
   runtimeBrokerStatus?: RuntimeBrokerStatus;
   runtimeBrokerExplanation?: RuntimeBrokerExplanation;
   runtimeBrokerInvokeResult?: Record<string, unknown>;
+  ownerModelLab?: OwnerModelLab;
+  ownerModelProbeResult?: OwnerModelProbeResult;
+  sovereignStatus?: SovereignStatus;
+  communityWrapperStatus?: CommunityWrapperStatus;
+  communityWrapperValidation?: CommunityWrapperStatus;
   codexDelegatedAuth?: CodexDelegatedAuthStatus;
   approvalGatePolicy?: ApprovalGatePolicy;
   approvalGateRequests: ApprovalGateRequest[];
@@ -303,12 +345,19 @@ export function App() {
   const api = useApi();
   const [state, setState] = useState<PanelState>(initialState);
   const [objective, setObjective] = useState('Criar uma sessao Codex continua com MCP, snapshots, handoff e QoS.');
+  const [runtimeProvider, setRuntimeProvider] = useState('auto');
+  const [runtimeModel, setRuntimeModel] = useState('gpt-5.5');
+  const [agentMode, setAgentMode] = useState('aios_assistant');
   const [actionLoading, setActionLoading] = useState('');
   const [voiceState, setVoiceState] = useState('');
 
   const selectedSession = useMemo(
     () => state.sessions.find((session) => session.id === state.selectedSessionId) ?? state.sessions[0],
     [state.selectedSessionId, state.sessions],
+  );
+  const selectedAgent = useMemo(
+    () => AGENT_ROOM_OPTIONS.find((agent) => agent.id === agentMode) ?? AGENT_ROOM_OPTIONS[0],
+    [agentMode],
   );
 
   const refresh = useCallback(async () => {
@@ -333,6 +382,9 @@ export function App() {
         runtimeBrokerProviders,
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
+        ownerModelLab,
+        sovereignStatus,
+        communityWrapperStatus,
         codexDelegatedAuth,
         approvalGatePolicy,
         approvalGateRequests,
@@ -365,6 +417,9 @@ export function App() {
         api.runtimeBrokerProviders(),
         api.runtimeBrokerStatus(),
         api.runtimeBrokerExplain(),
+        api.ownerModelLab(),
+        api.sovereignStatus(),
+        api.communityWrapperStatus(),
         api.codexDelegatedAuthStatus(),
         api.approvalGatePolicy(),
         api.listApprovalGateRequests(),
@@ -399,6 +454,9 @@ export function App() {
         runtimeBrokerProviders: runtimeBrokerProviders.providers,
         runtimeBrokerStatus,
         runtimeBrokerExplanation,
+        ownerModelLab,
+        sovereignStatus,
+        communityWrapperStatus,
         codexDelegatedAuth,
         approvalGatePolicy,
         approvalGateRequests,
@@ -469,6 +527,21 @@ export function App() {
     await refresh();
   }
 
+  async function ensureSession(title = 'Workbench Codex Session'): Promise<CodexSession | undefined> {
+    if (selectedSession) {
+      return selectedSession;
+    }
+    const created = await runAction('session-auto', () => api.createSession(title, objective));
+    if (!created) return undefined;
+    setState((current) => ({
+      ...current,
+      sessions: [created, ...current.sessions],
+      selectedSessionId: created.id,
+    }));
+    await loadWorkbench(created.id);
+    return created;
+  }
+
   function startVoiceCommand() {
     const SpeechRecognition = window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -524,63 +597,68 @@ export function App() {
   }
 
   async function createSnapshot() {
-    if (!selectedSession) return;
+    const session = await ensureSession('Workbench Snapshot Session');
+    if (!session) return;
     const snapshot = await runAction('snapshot', () =>
       api.createSnapshot(
-        selectedSession.id,
+        session.id,
         'Workbench checkpoint',
         ['frontend/src/App.tsx', 'backend/app/main.py', 'mcp/aios-mcp-repo/src/server.ts'],
         'Snapshot criado pelo Workbench.',
       ),
     );
     if (!snapshot) return;
-    await loadWorkbench(selectedSession.id);
+    await loadWorkbench(session.id);
   }
 
   async function createHandoff() {
-    if (!selectedSession) return;
+    const session = await ensureSession('Workbench Handoff Session');
+    if (!session) return;
     const files = state.workbench?.filesChanged?.length ? state.workbench.filesChanged.join(', ') : 'sem arquivos registrados';
     const handoff = await runAction('handoff', () =>
       api.createHandoff(
-        selectedSession.id,
+        session.id,
         'Continuar a implementacao a partir do checkpoint atual.',
-        `Objetivo: ${selectedSession.objective}. Arquivos recentes: ${files}.`,
+        `Objetivo: ${session.objective}. Arquivos recentes: ${files}.`,
         ['Revisar snapshot mais recente', 'Executar build/testes', 'Atualizar docs se houver novo recurso'],
       ),
     );
     if (!handoff) return;
-    await loadWorkbench(selectedSession.id);
+    await loadWorkbench(session.id);
   }
 
   async function enqueueBuild() {
-    const job = await runAction('qos', () => api.enqueueQos('build', { command: 'npm run build', sessionId: selectedSession?.id }));
+    const session = await ensureSession('Workbench Build Session');
+    if (!session) return;
+    const job = await runAction('qos', () => api.enqueueQos('build', { command: 'npm run build', sessionId: session.id }));
     if (!job) return;
     setState((current) => ({ ...current, lastJob: job }));
-    if (selectedSession) {
-      await loadWorkbench(selectedSession.id);
-    }
+    await loadWorkbench(session.id);
     await refresh();
   }
 
   async function runCodex() {
-    const result = await runAction('codex', () => api.runCodex(objective, selectedSession?.id));
+    const session = await ensureSession('Workbench Codex Run Session');
+    if (!session) return;
+    const result = await runAction('codex', () => api.runCodex(objective, session.id));
     if (!result) return;
     setState((current) => ({ ...current, lastRun: result }));
   }
 
   async function executeSkill() {
-    const result = await runAction('skill', () => api.executeSkill('workbench.status_brief', { objective, sessionId: selectedSession?.id }));
+    const session = await ensureSession('Workbench Skill Session');
+    if (!session) return;
+    const result = await runAction('skill', () => api.executeSkill('workbench.status_brief', { objective, sessionId: session.id }));
     if (!result) return;
     setState((current) => ({ ...current, lastSkill: result }));
-    if (selectedSession) {
-      await loadWorkbench(selectedSession.id);
-    }
+    await loadWorkbench(session.id);
   }
 
   async function simulateMcpEvent() {
-    if (!selectedSession) return;
+    const session = await ensureSession('Workbench MCP Session');
+    if (!session) return;
     await runAction('mcp-event', () =>
-      api.createSessionEvent(selectedSession.id, {
+      api.createSessionEvent(session.id, {
         type: 'mcp.tool_call',
         source: 'workbench-local',
         title: 'repo.search',
@@ -588,8 +666,8 @@ export function App() {
         payload: { tool: 'repo.search', query: 'Codex Workbench', mode: 'local-manual' },
       }),
     );
-    await api.addFilesChanged(selectedSession.id, ['frontend/src/App.tsx'], 'workbench-local');
-    await loadWorkbench(selectedSession.id);
+    await api.addFilesChanged(session.id, ['frontend/src/App.tsx'], 'workbench-local');
+    await loadWorkbench(session.id);
   }
 
   async function loadProductManifest() {
@@ -648,17 +726,27 @@ export function App() {
 
   async function loadRuntimeBrokerStatus() {
     const result = await runAction('runtime-broker-status', () =>
-      Promise.all([api.runtimeBrokerProviders(), api.runtimeBrokerStatus(), api.runtimeBrokerExplain()]),
+      Promise.all([api.runtimeBrokerProviders(), api.runtimeBrokerStatus(), api.runtimeBrokerExplain(), api.communityWrapperStatus()]),
     );
-    const [providerCatalog, runtimeBrokerStatus, runtimeBrokerExplanation] = result ?? [];
-    if (!providerCatalog || !runtimeBrokerStatus || !runtimeBrokerExplanation) return;
+    const [providerCatalog, runtimeBrokerStatus, runtimeBrokerExplanation, communityWrapperStatus] = result ?? [];
+    if (!providerCatalog || !runtimeBrokerStatus || !runtimeBrokerExplanation || !communityWrapperStatus) return;
     setState((current) => ({
       ...current,
       runtimeBrokerProviders: providerCatalog.providers,
       runtimeBrokerStatus,
       runtimeBrokerExplanation,
+      communityWrapperStatus,
       runtimeBrokerInvokeResult: runtimeBrokerStatus,
     }));
+  }
+
+  function runtimeObjective() {
+    return [
+      `Agent Room: ${selectedAgent.label}.`,
+      `Papel do agente: ${selectedAgent.role}`,
+      '',
+      `Pedido do Product Owner: ${objective}`,
+    ].join('\n');
   }
 
   async function invokeRuntimeBroker() {
@@ -671,12 +759,51 @@ export function App() {
       }));
     }
     const runtimeBrokerInvokeResult = await runAction('runtime-broker-invoke', () =>
-      api.runtimeBrokerInvoke(session.id, objective, 'auto'),
+      api.runtimeBrokerInvoke(session.id, runtimeObjective(), runtimeProvider, runtimeModel),
     );
     if (!runtimeBrokerInvokeResult) return;
     setState((current) => ({ ...current, runtimeBrokerInvokeResult }));
     await loadWorkbench(session.id);
-    await refresh();
+  }
+
+  async function probeSelectedOwnerModel() {
+    const result = await runAction('owner-model-probe', () =>
+      api.ownerModelProbe(runtimeProvider, runtimeModel || 'gpt-5.5', runtimeObjective(), 120),
+    );
+    if (!result) return;
+    setState((current) => ({
+      ...current,
+      ownerModelProbeResult: result,
+      runtimeBrokerInvokeResult: result.status === 'verified_live'
+        ? {
+          provider: result.providerId,
+          model: result.modelId,
+          outputText: result.outputText,
+          adapter: result.adapter,
+          networkCallPerformed: result.networkCallPerformed,
+          validationSummary: result.validationSummary,
+        }
+        : current.runtimeBrokerInvokeResult,
+    }));
+  }
+
+  async function validateCommunityWrapper(runSmokeTest = false) {
+    const communityWrapperValidation = await runAction('community-wrapper-validate', () =>
+      api.communityWrapperValidate(runSmokeTest, objective),
+    );
+    if (!communityWrapperValidation) return;
+    const [runtimeBrokerStatus, runtimeBrokerExplanation] = await Promise.all([
+      api.runtimeBrokerStatus(),
+      api.runtimeBrokerExplain(),
+    ]);
+    setState((current) => ({
+      ...current,
+      communityWrapperStatus: communityWrapperValidation,
+      communityWrapperValidation,
+      runtimeBrokerStatus,
+      runtimeBrokerExplanation,
+      runtimeBrokerInvokeResult: communityWrapperValidation,
+    }));
   }
 
   async function loadCodexDelegatedAuthStatus() {
@@ -989,6 +1116,21 @@ export function App() {
   const filesChanged = state.workbench?.filesChanged ?? [];
   const buildStatus = state.workbench?.buildStatus?.status ?? state.lastJob?.status ?? 'not_queued';
   const heritage = state.heritage ?? state.workbench?.legacyLineage;
+  const runtimeOutputText =
+    typeof state.runtimeBrokerInvokeResult?.outputText === 'string'
+      ? state.runtimeBrokerInvokeResult.outputText.trim()
+      : '';
+  const chatResponseText =
+    runtimeOutputText ||
+    (state.runtimeBrokerInvokeResult ? 'Runtime concluiu, mas nao retornou texto. Tente enviar novamente ou trocar modelo/agente.' : '') ||
+    (api.apiError ? `Erro: ${api.apiError}` : '') ||
+    'A resposta vai aparecer aqui. Digite uma mensagem e clique em Enviar para runtime real.';
+  const activeRuntimeProvider = state.runtimeBrokerStatus?.liveRuntimeProvider || runtimeProvider;
+  const runtimeStatusLabel = state.runtimeBrokerStatus?.canInvokeLiveRuntime
+    ? 'runtime vivo'
+    : actionLoading === 'refresh'
+      ? 'verificando runtime'
+      : 'pronto para testar';
 
   return (
     <AppShell>
@@ -998,13 +1140,222 @@ export function App() {
             <h1>Codex Workbench</h1>
             <p>Pare de medir uso. Comece a construir.</p>
           </div>
-          <button className="secondary-button" onClick={refresh} disabled={actionLoading === 'refresh'}>
-            <RefreshCcw size={18} />
-            Atualizar Workbench
-          </button>
+          <div className="topbar-actions">
+            <a className="secondary-button" href="#aios-chat">
+              <Sparkles size={18} />
+              Ir para o Chat
+            </a>
+            <button className="secondary-button" onClick={refresh} disabled={actionLoading === 'refresh'}>
+              <RefreshCcw size={18} />
+              Atualizar Workbench
+            </button>
+          </div>
         </header>
 
         {api.apiError ? <div className="banner-error">{api.apiError}</div> : null}
+
+        <section id="aios-chat" className="aios-chat-panel" aria-labelledby="aios-chat-title">
+          <div className="aios-chat-main">
+            <div className="panel-heading">
+              <div>
+                <span className="product-kicker">Product Owner Demo</span>
+                <h2 id="aios-chat-title">AIOS Chat Principal</h2>
+                <p>Este e o lugar principal para conversar com o AIOS. Escolha modelo, agente e clique em enviar.</p>
+              </div>
+              <span className={state.runtimeBrokerStatus?.canInvokeLiveRuntime ? 'status-pill' : 'status-pill warn'}>
+                {runtimeStatusLabel}
+              </span>
+            </div>
+
+            <div className="aios-chat-controls">
+              <label>
+                Runtime
+                <select value={runtimeProvider} onChange={(event) => setRuntimeProvider(event.target.value)}>
+                  <option value="auto">Auto: melhor runtime vivo</option>
+                  <option value="codex_cli_local_developer">Codex CLI local</option>
+                  <option value="aios_native_runtime">AIOS Native Runtime</option>
+                  <option value="openai_api_authorized">OpenAI API autorizada</option>
+                  <option value="community_wrapper_runtime">Runtime local privado</option>
+                  <option value="ollama_local_cloud">Ollama local/cloud</option>
+                </select>
+              </label>
+              <label>
+                Modelo
+                <select value={runtimeModel} onChange={(event) => setRuntimeModel(event.target.value)}>
+                  <option value="">Auto do provider</option>
+                  <option value="gpt-5.5">gpt-5.5</option>
+                  <option value="gpt-5.2-codex">gpt-5.2-codex</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="aios-native-fabric-v1">aios-native-fabric-v1</option>
+                  <option value="gpt-oss:20b">gpt-oss:20b</option>
+                  <option value="qwen2.5-coder:1.5b">qwen2.5-coder:1.5b</option>
+                </select>
+              </label>
+              <label>
+                Agente
+                <select value={agentMode} onChange={(event) => setAgentMode(event.target.value)}>
+                  {AGENT_ROOM_OPTIONS.map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label className="chat-input-label" htmlFor="aios-chat-input">
+              Mensagem para o AIOS
+              <textarea
+                id="aios-chat-input"
+                value={objective}
+                onChange={(event) => setObjective(event.target.value)}
+                placeholder="Digite aqui o que voce quer perguntar ao AIOS..."
+              />
+            </label>
+
+            <div className="aios-chat-actions">
+              <button className="primary-chat-button" onClick={invokeRuntimeBroker} disabled={Boolean(actionLoading)}>
+                <Sparkles size={18} />
+                {actionLoading === 'runtime-broker-invoke' ? 'Chamando runtime...' : 'Enviar para runtime real'}
+              </button>
+              <button className="secondary-button" onClick={createSession} disabled={Boolean(actionLoading)}>
+                <Play size={18} />
+                Nova sessao
+              </button>
+              <button className="secondary-button" onClick={createSnapshot} disabled={Boolean(actionLoading)}>
+                <GitBranch size={18} />
+                Snapshot
+              </button>
+            </div>
+          </div>
+
+          <aside className="aios-chat-answer" aria-label="Resposta principal do AIOS">
+            <div className="chat-output-heading">
+              <strong>Resposta do AIOS</strong>
+              <span>{String(state.runtimeBrokerInvokeResult?.provider ?? state.runtimeBrokerStatus?.recommendedProvider ?? 'codex_cli_local_developer')}</span>
+            </div>
+            <p>
+              {chatResponseText}
+            </p>
+            <dl className="detail-list compact-list">
+              <dt>Modelo</dt>
+              <dd>{String(state.runtimeBrokerInvokeResult?.model ?? (runtimeModel || 'auto'))}</dd>
+              <dt>Agente</dt>
+              <dd>{selectedAgent.label}</dd>
+              <dt>Provider vivo</dt>
+              <dd>{activeRuntimeProvider}</dd>
+            </dl>
+          </aside>
+        </section>
+
+        <section className="detail-panel owner-model-lab" aria-labelledby="owner-model-lab-title">
+          <div className="panel-heading">
+            <div>
+              <span className="product-kicker">RC34 Owner Product</span>
+              <h2 id="owner-model-lab-title">Owner Model Lab</h2>
+              <p>Diagnostico real dos modelos e providers nesta maquina. Sem resposta falsa: modelo recusado aparece como recusado.</p>
+            </div>
+            <span className={state.ownerModelLab?.canInvokeLiveRuntime ? 'status-pill' : 'status-pill warn'}>
+              {state.ownerModelLab?.activeRuntimeProvider || 'verificando'}
+            </span>
+          </div>
+          <div className="owner-model-grid">
+            {(state.ownerModelLab?.models ?? []).map((model) => (
+              <article className={model.canInvokeLiveRuntime ? 'owner-model-card ready' : 'owner-model-card'} key={model.modelId}>
+                <div>
+                  <strong>{model.label}</strong>
+                  <span>{model.modelId}</span>
+                </div>
+                <p>{model.purpose}</p>
+                <dl className="detail-list compact-list">
+                  <dt>Status</dt>
+                  <dd>{model.status}</dd>
+                  <dt>Provider</dt>
+                  <dd>{model.primaryProvider || model.preferredProviders.join(', ')}</dd>
+                </dl>
+                <small>{model.nextAction}</small>
+              </article>
+            ))}
+          </div>
+          <div className="runtime-banner owner-model-result">
+            <strong>{state.ownerModelProbeResult?.status ?? 'Aguardando teste do modelo selecionado'}</strong>
+            <span>
+              {state.ownerModelProbeResult?.validationSummary ??
+                'Use o seletor do AIOS Chat Principal e clique em Testar Modelo Selecionado para validar o provider/modelo atual.'}
+            </span>
+          </div>
+          {state.ownerModelProbeResult?.outputText ? (
+            <div className="chat-output-panel owner-model-output">
+              <div className="chat-output-heading">
+                <strong>Resposta do teste de modelo</strong>
+                <span>{state.ownerModelProbeResult.providerId} / {state.ownerModelProbeResult.modelId}</span>
+              </div>
+              <p>{state.ownerModelProbeResult.outputText}</p>
+            </div>
+          ) : null}
+          <div className="action-row">
+            <button onClick={probeSelectedOwnerModel} disabled={Boolean(actionLoading)}>
+              <Terminal size={17} />
+              {actionLoading === 'owner-model-probe' ? 'Testando modelo...' : 'Testar Modelo Selecionado'}
+            </button>
+          </div>
+        </section>
+
+        <section className="detail-panel sovereign-panel" aria-labelledby="sovereign-title">
+          <div className="panel-heading">
+            <div>
+              <span className="product-kicker">RC35 Sovereign</span>
+              <h2 id="sovereign-title">AIOS Codex OS Sovereign</h2>
+              <p>{state.sovereignStatus?.headline ?? 'Carregando Cognitive OS e Codex Plan Bridge.'}</p>
+            </div>
+            <span className={state.sovereignStatus?.canInvokeLiveRuntime ? 'status-pill' : 'status-pill warn'}>
+              {state.sovereignStatus?.router.activeCodeOrgan ?? 'verificando'}
+            </span>
+          </div>
+          <div className="sovereign-summary-grid">
+            <dl className="detail-list compact-list">
+              <dt>COS</dt>
+              <dd>{state.sovereignStatus?.cos.version ?? '1.1'}</dd>
+              <dt>SEP</dt>
+              <dd>{state.sovereignStatus?.sep.version ?? '0.9a'} / delegate {state.sovereignStatus?.sep.allowDelegate ? 'ativo' : 'bloqueado'}</dd>
+              <dt>Policy Sentinel</dt>
+              <dd>DSL {state.sovereignStatus?.policySentinel.dslVersion ?? '0.3'}</dd>
+            </dl>
+            <div className="runtime-banner">
+              <strong>{state.sovereignStatus?.officialProduction ? 'Producao oficial ativa' : 'Prototipo local soberano'}</strong>
+              <span>{state.sovereignStatus?.productionBlockedReason ?? 'Producao oficial continua separada do prototipo local.'}</span>
+            </div>
+          </div>
+          <div className="sovereign-organ-grid">
+            {(state.sovereignStatus?.organs ?? []).map((organ) => (
+              <article className={organ.canInvokeLiveRuntime ? 'sovereign-organ-card ready' : 'sovereign-organ-card'} key={organ.organId}>
+                <div>
+                  <strong>{organ.displayName}</strong>
+                  <span>{organ.organId}</span>
+                </div>
+                <dl className="detail-list compact-list">
+                  <dt>Realidade</dt>
+                  <dd>{organ.reality}</dd>
+                  <dt>Status</dt>
+                  <dd>{organ.status}</dd>
+                  <dt>Capacidades</dt>
+                  <dd>{organ.implementedCapabilities.length ? organ.implementedCapabilities.join(', ') : 'aguardando artefato'}</dd>
+                </dl>
+                <small>{organ.notes}</small>
+                {organ.delegateStatus ? (
+                  <small>
+                    Codex CLI: {organ.delegateStatus.connected ? organ.delegateStatus.cliVersion || 'conectado' : 'indisponivel'}; auth.json lido: {organ.delegateStatus.readsAuthJson ? 'sim' : 'nao'}
+                  </small>
+                ) : null}
+              </article>
+            ))}
+          </div>
+          <div className="module-grid broker-provider-grid" aria-label="Sovereign router rules">
+            {(state.sovereignStatus?.router.routingRules ?? []).map((rule, index) => (
+              <span key={`${Object.keys(rule).join('-')}-${index}`}>
+                {Object.entries(rule).map(([key, value]) => `${key}: ${value}`).join(' -> ')}
+              </span>
+            ))}
+          </div>
+        </section>
 
         <section className="metrics-grid">
           <MetricCard icon={<CheckCircle2 size={20} />} label="Plano" value={state.entitlement?.plan ?? 'carregando'} tone="green" />
@@ -1195,6 +1546,53 @@ export function App() {
           <article className="detail-panel">
             <div className="panel-heading">
               <div>
+                <h2>RC31 Private Community Runtime</h2>
+                <p>Runtime real privado por endpoint local/seguro, sem segredo no Git ou no ZIP.</p>
+              </div>
+              <span className={state.communityWrapperStatus?.canInvokeLiveRuntime ? 'status-pill' : 'status-pill warn'}>
+                {state.communityWrapperStatus?.status ?? 'aguardando'}
+              </span>
+            </div>
+            <dl className="detail-list">
+              <dt>Provider</dt>
+              <dd>{state.communityWrapperStatus?.providerId ?? 'community_wrapper_runtime'}</dd>
+              <dt>Modelo</dt>
+              <dd>{state.communityWrapperStatus?.modelId ?? 'gpt-oss:20b / modelo privado configurado'}</dd>
+              <dt>Endpoint</dt>
+              <dd>{state.communityWrapperStatus?.baseUrlRedacted || 'nao configurado'}</dd>
+              <dt>Credencial</dt>
+              <dd>{state.communityWrapperStatus?.credentialPresent ? 'presente e redigida' : 'nao configurada / opcional'}</dd>
+              <dt>Live local</dt>
+              <dd>{state.communityWrapperStatus?.canInvokeLiveRuntime ? 'ativo para demo local' : 'pendente'}</dd>
+              <dt>Producao oficial</dt>
+              <dd>{state.communityWrapperStatus?.officialProduction ? 'ativa' : 'bloqueada ate binding oficial completo'}</dd>
+            </dl>
+            {(state.communityWrapperStatus?.missingRequirements?.length ?? 0) > 0 && (
+              <div className="module-grid broker-provider-grid" aria-label="Community wrapper missing requirements">
+                {state.communityWrapperStatus?.missingRequirements.map((item) => <span key={item}>{item}</span>)}
+              </div>
+            )}
+            <div className="module-grid broker-provider-grid" aria-label="GPT OSS 20B aliases">
+              {((state.communityWrapperStatus?.providerModelAliases as string[] | undefined) ?? ['openai/gpt-oss-20b', 'gpt-oss:20b']).map((item) => <span key={item}>{item}</span>)}
+            </div>
+            <div className="action-row">
+              <button onClick={() => validateCommunityWrapper(false)} disabled={Boolean(actionLoading)}>
+                <ShieldCheck size={17} />
+                Validar Wrapper
+              </button>
+              <button onClick={() => validateCommunityWrapper(true)} disabled={Boolean(actionLoading)}>
+                <Play size={17} />
+                Smoke Test Vivo
+              </button>
+            </div>
+            <p className="muted">
+              Configure pelo arquivo local ignorado <code>.env.local.private</code>. Segredos ficam na maquina do desenvolvedor e nao sao exibidos no Workbench.
+            </p>
+          </article>
+
+          <article className="detail-panel">
+            <div className="panel-heading">
+              <div>
                 <h2>Modelos Codex</h2>
                 <p>Registro de modelos preparados para o adapter oficial.</p>
               </div>
@@ -1270,7 +1668,7 @@ export function App() {
           <article className="detail-panel">
             <div className="panel-heading">
               <div>
-                <h2>Runtime Broker RC21</h2>
+                <h2>AIOS Real Model Runtime RC34</h2>
                 <p>{state.runtimeBrokerStatus?.intelligenceSystem?.name ?? 'AIOS Cognitive Runtime Mesh'}</p>
               </div>
               <span className="status-pill">{state.runtimeBrokerStatus?.recommendedProvider || 'auto'}</span>
@@ -1278,12 +1676,14 @@ export function App() {
             <dl className="detail-list">
               <dt>Provider explainability</dt>
               <dd>{state.runtimeBrokerExplanation?.claimBoundary?.message ?? state.runtimeBrokerStatus?.selection?.explanation ?? 'aguardando status do broker'}</dd>
-              <dt>Modelo fallback</dt>
-              <dd>{String(state.runtimeBrokerStatus?.providers?.ollama_local_cloud?.defaultModel ?? 'deepseek-v4-pro:cloud')}</dd>
-              <dt>Chave OpenAI dev</dt>
-              <dd>{state.runtimeBrokerStatus?.providers?.ollama_local_cloud?.requiresDeveloperApiKey ? 'necessaria' : 'nao exigida'}</dd>
-              <dt>Live enterprise</dt>
-              <dd>{state.runtimeBrokerStatus?.canInvokeLiveRuntime ? state.runtimeBrokerStatus.liveRuntimeProvider : 'bloqueado sem binding oficial'}</dd>
+              <dt>Modelo ativo</dt>
+              <dd>{String(state.runtimeBrokerInvokeResult?.model ?? state.runtimeBrokerStatus?.providers?.[state.runtimeBrokerStatus?.recommendedProvider ?? '']?.configuredModel ?? state.runtimeBrokerStatus?.providers?.ollama_local_cloud?.defaultModel ?? 'auto')}</dd>
+              <dt>OpenAI API</dt>
+              <dd>{state.runtimeBrokerStatus?.providers?.openai_api_authorized?.credentialPresent ? 'credencial local presente e redigida' : 'sem key local'}</dd>
+              <dt>Live para teste</dt>
+              <dd>{state.runtimeBrokerStatus?.canInvokeLiveRuntime ? state.runtimeBrokerStatus.liveRuntimeProvider : 'nenhum runtime real validado'}</dd>
+              <dt>Producao oficial</dt>
+              <dd>{state.runtimeBrokerStatus?.providers?.official_codex_runtime?.available ? 'binding oficial ativo' : 'nao ativada nesta demo local'}</dd>
             </dl>
             <div className="module-grid broker-provider-grid" aria-label="Runtime Broker provider order">
               {(state.runtimeBrokerStatus?.providerOrder ?? state.runtimeBrokerProviders.map((provider) => provider.providerId)).map((providerId) => (
@@ -1301,7 +1701,7 @@ export function App() {
               </button>
             </div>
             <p className="muted">
-              Roteia provider oficial, Codex delegado, AIOS Cloud, self-hosted, demo e fallback sem falso claim de runtime vivo.
+              O chat padrao usa Codex CLI local para conversar com modelo real. AIOS Native continua como camada propria de sessao/agentes, nao como checkpoint proprietario.
             </p>
           </article>
 
@@ -1687,25 +2087,63 @@ export function App() {
               </div>
               <span className="status-pill">{state.entitlement?.priorityClass ?? 'premium_unlimited'}</span>
             </div>
-            <textarea value={objective} onChange={(event) => setObjective(event.target.value)} />
+            <label className="chat-input-label" htmlFor="session-objective-input">
+              Objetivo da sessao Codex
+              <textarea id="session-objective-input" value={objective} onChange={(event) => setObjective(event.target.value)} />
+            </label>
+            <div className="runtime-picker">
+              <label>
+                Runtime
+                <select value={runtimeProvider} onChange={(event) => setRuntimeProvider(event.target.value)}>
+                  <option value="auto">Auto: melhor runtime vivo</option>
+                  <option value="aios_native_runtime">AIOS Native Runtime</option>
+                  <option value="codex_cli_local_developer">Codex CLI local</option>
+                  <option value="openai_api_authorized">OpenAI API autorizada</option>
+                  <option value="community_wrapper_runtime">Runtime local privado</option>
+                  <option value="ollama_local_cloud">Ollama local/cloud</option>
+                </select>
+              </label>
+              <label>
+                Modelo
+                <select value={runtimeModel} onChange={(event) => setRuntimeModel(event.target.value)}>
+                  <option value="">Auto do provider</option>
+                  <option value="aios-native-fabric-v1">aios-native-fabric-v1</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-5.2-codex">gpt-5.2-codex</option>
+                  <option value="gpt-5.5">gpt-5.5</option>
+                  <option value="gpt-oss:20b">gpt-oss:20b</option>
+                  <option value="qwen2.5-coder:1.5b">qwen2.5-coder:1.5b</option>
+                </select>
+              </label>
+            </div>
+            <div className="runtime-banner">
+              <strong>{activeRuntimeProvider}</strong>
+              <span>
+                Produto por sessao: sem medidor de tokens na UI. O modo padrao usa Codex CLI local autenticado; AIOS nao le auth.json nem mostra segredo.
+              </span>
+            </div>
             <div className="action-row">
               <button onClick={createSession} disabled={Boolean(actionLoading)}>
                 <Play size={17} />
                 {actionLoading === 'session' ? 'Criando...' : 'Nova sessao'}
               </button>
-              <button onClick={runCodex} disabled={!selectedSession || Boolean(actionLoading)}>
+              <button onClick={runCodex} disabled={Boolean(actionLoading)}>
                 <Sparkles size={17} />
                 {actionLoading === 'codex' ? 'Executando...' : 'Codex run'}
               </button>
-              <button onClick={createSnapshot} disabled={!selectedSession || Boolean(actionLoading)}>
-                <GitBranch size={17} />
-                {actionLoading === 'snapshot' ? 'Salvando...' : 'Snapshot'}
+              <button onClick={invokeRuntimeBroker} disabled={Boolean(actionLoading)}>
+                <Workflow size={17} />
+                {actionLoading === 'runtime-broker-invoke' ? 'Chamando...' : 'Chat runtime real'}
               </button>
-              <button onClick={createHandoff} disabled={!selectedSession || Boolean(actionLoading)}>
+              <button onClick={createSnapshot} disabled={Boolean(actionLoading)}>
+                <GitBranch size={17} />
+                {actionLoading === 'snapshot' || actionLoading === 'session-auto' ? 'Salvando...' : 'Snapshot'}
+              </button>
+              <button onClick={createHandoff} disabled={Boolean(actionLoading)}>
                 <History size={17} />
                 {actionLoading === 'handoff' ? 'Criando...' : 'Handoff'}
               </button>
-              <button onClick={enqueueBuild} disabled={!selectedSession || Boolean(actionLoading)}>
+              <button onClick={enqueueBuild} disabled={Boolean(actionLoading)}>
                 <ClipboardList size={17} />
                 {actionLoading === 'qos' ? 'Enfileirando...' : 'QoS build'}
               </button>
@@ -1719,6 +2157,15 @@ export function App() {
               </button>
             </div>
             {voiceState ? <p className="voice-status">{voiceState}</p> : null}
+            <div className="chat-output-panel">
+              <div className="chat-output-heading">
+                <strong>Resposta do AIOS</strong>
+                <span>{String(state.runtimeBrokerInvokeResult?.provider ?? state.runtimeBrokerStatus?.recommendedProvider ?? 'codex_cli_local_developer')}</span>
+              </div>
+              <p>
+                {chatResponseText}
+              </p>
+            </div>
           </article>
 
           <article className="session-list">
@@ -1830,11 +2277,11 @@ export function App() {
               ))}
             </div>
             <div className="stacked-actions">
-              <button className="secondary-button full" onClick={executeSkill} disabled={!selectedSession || Boolean(actionLoading)}>
+              <button className="secondary-button full" onClick={executeSkill} disabled={Boolean(actionLoading)}>
                 <Sparkles size={17} />
                 Executar skill
               </button>
-              <button className="secondary-button full" onClick={simulateMcpEvent} disabled={!selectedSession || Boolean(actionLoading)}>
+              <button className="secondary-button full" onClick={simulateMcpEvent} disabled={Boolean(actionLoading)}>
                 <Terminal size={17} />
                 Registrar evento MCP local
               </button>

@@ -9,8 +9,11 @@ const repoRoot = join(frontendRoot, '..');
 const backendRoot = join(repoRoot, 'backend');
 const stateDir = join(frontendRoot, 'test-results');
 const statePath = join(stateDir, 'vite-server-state.json');
-const frontendUrl = 'http://127.0.0.1:5173';
-const backendUrl = 'http://127.0.0.1:8000/health';
+const frontendPort = process.env.AIOS_PLAYWRIGHT_FRONTEND_PORT ?? '5173';
+const backendPort = process.env.AIOS_PLAYWRIGHT_BACKEND_PORT ?? '8000';
+const frontendUrl = `http://127.0.0.1:${frontendPort}`;
+const backendBaseUrl = `http://127.0.0.1:${backendPort}`;
+const backendUrl = `${backendBaseUrl}/health`;
 
 async function isServerReady(url) {
   try {
@@ -61,11 +64,18 @@ async function globalSetup() {
   if (!(await isServerReady(backendUrl))) {
     const backend = spawn(
       pythonExecutable(),
-      ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000'],
+      ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', backendPort],
       {
         cwd: backendRoot,
         detached: true,
-        env: process.env,
+        env: {
+          ...process.env,
+          AIOS_ENV: process.env.AIOS_ENV ?? 'local_developer',
+          AIOS_PRESENTATION_MODE: process.env.AIOS_PRESENTATION_MODE ?? 'true',
+          AIOS_CHAT_PROVIDER: process.env.AIOS_CHAT_PROVIDER ?? 'codex_cli_local_developer',
+          AIOS_ALLOW_CODEX_CLI_RUNTIME: process.env.AIOS_ALLOW_CODEX_CLI_RUNTIME ?? 'true',
+          AIOS_CODEX_CLI_MODEL: process.env.AIOS_CODEX_CLI_MODEL ?? 'gpt-5.5',
+        },
         stdio: ['ignore', appendLog('backend-stdout.log'), appendLog('backend-stderr.log')],
         windowsHide: true,
       },
@@ -81,13 +91,13 @@ async function globalSetup() {
     const viteBin = join(frontendRoot, 'node_modules', 'vite', 'bin', 'vite.js');
     const vite = spawn(
       process.execPath,
-      [viteBin, '--host', '127.0.0.1', '--port', '5173'],
+      [viteBin, '--host', '127.0.0.1', '--port', frontendPort],
       {
         cwd: frontendRoot,
         detached: true,
         env: {
           ...process.env,
-          VITE_AIOS_API_URL: 'http://127.0.0.1:8000',
+          VITE_AIOS_API_URL: backendBaseUrl,
         },
         stdio: ['ignore', appendLog('vite-stdout.log'), appendLog('vite-stderr.log')],
         windowsHide: true,

@@ -1,3 +1,8 @@
+---
+name: mcp.repo.operator
+description: Use when operating the local AIOS workspace through MCP repo tools, snapshots, handoff, and policy checks.
+---
+
 # MCP Repo Operator
 
 Use this skill when Codex operates the local AIOS workspace through MCP.

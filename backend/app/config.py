@@ -1,6 +1,139 @@
 from functools import lru_cache
 import os
+from pathlib import Path
 from pydantic import BaseModel, Field
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PRIVATE_ENV_FILE = PROJECT_ROOT / ".env.local.private"
+PRIVATE_ENV_ALLOWED_MODES = {"local_developer", "presentation"}
+PRIVATE_ENV_BLOCKED_MODES = {"production", "prod"}
+PRIVATE_ENV_ALLOWED_PREFIXES = ("AIOS_", "OPENAI_", "AZURE_", "OLLAMA_")
+_PRIVATE_ENV_STATUS = {
+    "path": ".env.local.private",
+    "loaded": False,
+    "status": "not_checked",
+    "keysLoaded": [],
+    "keysSkipped": [],
+    "secretsExposed": False,
+}
+
+
+def _strip_env_value(value: str) -> str:
+    cleaned = value.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"'}:
+        return cleaned[1:-1]
+    return cleaned
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key and key.replace("_", "").isalnum():
+            parsed[key] = _strip_env_value(value)
+    return parsed
+
+
+def load_private_env_file(path: str | Path | None = None, force: bool = False) -> dict:
+    """Load local private developer config without exposing or persisting secrets."""
+    global _PRIVATE_ENV_STATUS
+    env_path = Path(path) if path else PRIVATE_ENV_FILE
+    ambient_mode = (os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "").strip().lower()
+    if ambient_mode in PRIVATE_ENV_BLOCKED_MODES and not force:
+        _PRIVATE_ENV_STATUS = {
+            "path": env_path.name,
+            "loaded": False,
+            "status": "blocked_in_production",
+            "keysLoaded": [],
+            "keysSkipped": [],
+            "secretsExposed": False,
+        }
+        return dict(_PRIVATE_ENV_STATUS)
+    if ambient_mode not in PRIVATE_ENV_ALLOWED_MODES and not force:
+        _PRIVATE_ENV_STATUS = {
+            "path": env_path.name,
+            "loaded": False,
+            "status": "blocked_until_process_mode_local_developer_or_presentation",
+            "keysLoaded": [],
+            "keysSkipped": [],
+            "secretsExposed": False,
+        }
+        return dict(_PRIVATE_ENV_STATUS)
+    if not env_path.exists():
+        _PRIVATE_ENV_STATUS = {
+            "path": env_path.name,
+            "loaded": False,
+            "status": "missing",
+            "keysLoaded": [],
+            "keysSkipped": [],
+            "secretsExposed": False,
+        }
+        return dict(_PRIVATE_ENV_STATUS)
+
+    values = _read_env_file(env_path)
+    declared_mode = (values.get("AIOS_ENV") or ambient_mode or "local_developer").strip().lower()
+    if declared_mode in PRIVATE_ENV_BLOCKED_MODES:
+        _PRIVATE_ENV_STATUS = {
+            "path": env_path.name,
+            "loaded": False,
+            "status": "blocked_by_file_mode",
+            "keysLoaded": [],
+            "keysSkipped": sorted(values.keys()),
+            "secretsExposed": False,
+        }
+        return dict(_PRIVATE_ENV_STATUS)
+    if declared_mode not in PRIVATE_ENV_ALLOWED_MODES and not force:
+        _PRIVATE_ENV_STATUS = {
+            "path": env_path.name,
+            "loaded": False,
+            "status": "blocked_until_local_developer_or_presentation",
+            "keysLoaded": [],
+            "keysSkipped": sorted(values.keys()),
+            "secretsExposed": False,
+        }
+        return dict(_PRIVATE_ENV_STATUS)
+
+    loaded: list[str] = []
+    skipped: list[str] = []
+    for key, value in values.items():
+        if not key.startswith(PRIVATE_ENV_ALLOWED_PREFIXES):
+            skipped.append(key)
+            continue
+        if key in os.environ and not force:
+            skipped.append(key)
+            continue
+        os.environ[key] = value
+        loaded.append(key)
+
+    _PRIVATE_ENV_STATUS = {
+        "path": env_path.name,
+        "loaded": bool(loaded),
+        "status": "loaded" if loaded else "present_no_new_keys",
+        "keysLoaded": sorted(loaded),
+        "keysSkipped": sorted(skipped),
+        "mode": declared_mode,
+        "secretsExposed": False,
+    }
+    return dict(_PRIVATE_ENV_STATUS)
+
+
+def get_private_env_status() -> dict:
+    return dict(_PRIVATE_ENV_STATUS)
+
+
+def runtime_env_source() -> dict:
+    return {
+        "privateEnv": get_private_env_status(),
+        "mode": os.getenv("AIOS_ENV") or os.getenv("AIOS_ENVIRONMENT") or "local",
+        "secretsExposed": False,
+    }
+
+
+load_private_env_file()
 
 
 class Settings(BaseModel):
@@ -9,6 +142,7 @@ class Settings(BaseModel):
     redis_url: str = Field(default_factory=lambda: os.getenv("AIOS_REDIS_URL", ""))
     jwt_secret: str = Field(default_factory=lambda: os.getenv("AIOS_JWT_SECRET", "dev-only-change-me"))
     jwt_issuer: str = "aios-codex-unlimited"
+    jwt_expires_minutes: int = Field(default_factory=lambda: int(os.getenv("AIOS_JWT_EXPIRES_MINUTES", "10080")))
     vault_url: str = Field(default_factory=lambda: os.getenv("AIOS_VAULT_URL", ""))
     vault_token: str = Field(default_factory=lambda: os.getenv("AIOS_VAULT_TOKEN", ""))
     policy_path: str = Field(default_factory=lambda: os.getenv("AIOS_POLICY_PATH", "../shared/policies/aios-policy.json"))

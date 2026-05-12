@@ -1,0 +1,23 @@
+{
+  "organ_id": "aios_code.beta.organ",
+  "file_name": "gpt-52.codex.beta.organ",
+  "base_model": "code-open-weight-profile",
+  "reality": "beta_open_weight",
+  "capabilities": [
+    "identify",
+    "capabilities",
+    "attest",
+    "lease",
+    "generate",
+    "patch",
+    "verify"
+  ],
+  "name": "aios_code.beta.organ",
+  "version": "2026-05.rc35",
+  "createdAt": "2026-05-12T00:00:00+00:00",
+  "runtimeWasmSha256": "30d772bef611e75dd77453d17d678d3cb1aa5e4effe172f190c68daf4dd181ba",
+  "weightsSha256": "97d9196290c6c2c57f5315489bc2b91a1ab033282561ca43aafb18b15ef6de25",
+  "encryption": "local-bootstrap-xor-placeholder",
+  "replaceBeforeProduction": true,
+  "signature": "HpuRtRFIQKAoK7tO5mf7byredkIVspc4tG1djr3UpFU="
+}

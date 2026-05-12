@@ -1,0 +1,6 @@
+allow organ:codex.plan.core role:*
+deny tool:TerminalRunner cmd:rm-recursive
+limit rate codex.plan.core per_minute 30
+require verify_pass before merge
+mask log .*api_key.*
+

@@ -282,6 +282,133 @@ export type RuntimeBrokerExplanation = {
   secretsExposed: boolean;
 };
 
+export type OwnerModelLabModel = {
+  modelId: string;
+  label: string;
+  purpose: string;
+  preferredProviders: string[];
+  status: string;
+  readyProviders: string[];
+  primaryProvider: string;
+  canInvokeLiveRuntime: boolean;
+  nextAction: string;
+};
+
+export type OwnerModelLab = {
+  phase: string;
+  headline: string;
+  activeRuntimeProvider: string;
+  recommendedProvider: string;
+  canInvokeLiveRuntime: boolean;
+  officialProduction: boolean;
+  models: OwnerModelLabModel[];
+  providers: Record<string, Record<string, unknown>>;
+  secretsExposed: boolean;
+};
+
+export type OwnerModelProbeResult = {
+  status: string;
+  providerId: string;
+  modelId: string;
+  adapter: string;
+  outputText: string;
+  networkCallPerformed: boolean;
+  validationSummary: string;
+  secretsExposed: boolean;
+};
+
+export type SovereignOrgan = {
+  organId: string;
+  displayName: string;
+  reality: string;
+  type: string;
+  status: string;
+  modelSource?: string;
+  modelProfile?: string;
+  implementedCapabilities: string[];
+  contractCapabilities: string[];
+  canInvokeLiveRuntime: boolean;
+  officialProduction: boolean;
+  notes: string;
+  delegateStatus?: {
+    connected: boolean;
+    cliVersion: string;
+    plan: string;
+    transport: string;
+    localBridgeSocket: string;
+    localBridgeCommandAvailable: boolean;
+    readsAuthJson: boolean;
+    copiesTokens: boolean;
+    usesAiosApiKey: boolean;
+    limitations: string[];
+    missingRequirements: string[];
+    secretsExposed: boolean;
+  };
+  artifact?: {
+    manifestPresent: boolean;
+    manifestRef: string;
+    status: string;
+  };
+};
+
+export type SovereignStatus = {
+  phase: string;
+  product: string;
+  version: string;
+  headline: string;
+  cos: {
+    version: string;
+    methods: string[];
+  };
+  sep: {
+    version: string;
+    mode: string;
+    allowDelegate: boolean;
+    delegateWhitelist: string[];
+    gpuBudgetSecPerMission: number;
+    leaseMaxTtlSec: number;
+    policyRevision: string;
+  };
+  policySentinel: {
+    dslVersion: string;
+    rules: string[];
+  };
+  router: {
+    routingRules: Array<Record<string, string>>;
+    activeCodeOrgan: string;
+  };
+  organs: SovereignOrgan[];
+  canInvokeLiveRuntime: boolean;
+  officialProduction: boolean;
+  productionBlockedReason: string;
+  secretsExposed: boolean;
+};
+
+export type CommunityWrapperStatus = {
+  providerId: string;
+  displayName: string;
+  category: string;
+  runtimeKind: string;
+  status: string;
+  active: boolean;
+  canInvokeLiveRuntime: boolean;
+  officialProduction: boolean;
+  productionBlocked: boolean;
+  productionBlockedReason: string;
+  baseUrlConfigured: boolean;
+  baseUrlRedacted: string;
+  modelId: string;
+  supportedModelProfiles?: string[];
+  providerModelAliases?: string[];
+  credentialPresent: boolean;
+  credentialRequired: boolean;
+  credentialSource: string;
+  missingRequirements: string[];
+  validationSummary: Record<string, unknown>;
+  secretsExposed: boolean;
+  smokeTest?: Record<string, unknown> | null;
+};
+
 export type CodexDelegatedAuthStatus = {
   phase: string;
   provider: string;

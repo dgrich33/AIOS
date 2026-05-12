@@ -1,0 +1,11 @@
+{
+  "product": "AIOS Codex OS",
+  "mode": "sovereign",
+  "allow_delegate": true,
+  "delegate_whitelist": ["codex.plan.core"],
+  "allowed_organs": ["*"],
+  "gpu_budget_sec_per_mission": 1800,
+  "lease_max_ttl_sec": 600,
+  "policy_revision": "2026-05-A"
+}
+
