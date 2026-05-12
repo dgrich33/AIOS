@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aios-router-config
+data:
+  router-config.yaml: |
+    organs:
+      strategic_core: aios_strategic.beta.organ
+      code_core: aios_code.beta.organ
+      multimodal_core: aios_multimodal.beta.organ
+      codex_plan_core: codex.plan.core
+      native_micro: aios_native.microcluster.organ
+    routing_rules:
+      - when: intent.code && organ_available(codex_plan_core)
+        use: codex.plan.core
+      - when: intent.code
+        use: aios_code.beta.organ
+      - when: intent.ui || intent.vision
+        use: aios_multimodal.beta.organ
+      - when: intent.plan || intent.arch
+        use: aios_strategic.beta.organ
+      - default: aios_native.microcluster.organ

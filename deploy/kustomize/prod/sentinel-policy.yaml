@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aios-sentinel-policy
+data:
+  sentinel-default.v0.3.aiosdsl: |
+    allow organ:codex.plan.core role:*
+    deny tool:TerminalRunner cmd:rm-recursive
+    limit rate codex.plan.core per_minute 30
+    require verify_pass before merge
+    mask log .*api_key.*

@@ -86,7 +86,7 @@ jobs:
       - run: docker compose config
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/organ/')
+    if: startsWith(github.ref, 'refs/tags/organ/') || startsWith(github.ref, 'refs/tags/v')
     needs: [specs, bridge, backend, frontend, mcp, compose]
     runs-on: ubuntu-latest
     env:
