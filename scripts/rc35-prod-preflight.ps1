@@ -81,6 +81,15 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
   } catch {
     $results.Add((Add-Result "cluster-namespace" $false "namespace $Namespace not reachable yet"))
   }
+
+  foreach ($secretName in @("vault-creds", "aios-registry-pull-secret")) {
+    try {
+      $null = & kubectl -n $Namespace get secret $secretName 2>$null
+      $results.Add((Add-Result "cluster-secret:$secretName" $true "present"))
+    } catch {
+      $results.Add((Add-Result "cluster-secret:$secretName" $false "missing; create with rc35-prod-deploy.ps1 -CreateClusterSecrets or apply the approved secret out-of-band"))
+    }
+  }
 } elseif ($SkipClusterCheck) {
   $results.Add((Add-Result "cluster-check" $true "skipped by operator"))
 }

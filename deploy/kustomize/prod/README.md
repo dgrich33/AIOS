@@ -37,7 +37,21 @@ Replace placeholder values before applying those templates to a real cluster.
 
 The preflight checks tools, kube context, namespace reachability, S3/Vault config, and manifest rendering. It does not print secrets.
 
-## Apply
+## Create Secrets And Apply
+
+If the rollout machine is already authenticated to AWS/IRSA and the private registry, let the deploy script create the two cluster secrets before applying manifests:
+
+```powershell
+$env:VAULT_BUCKET = "s3://aios-vault"
+# Optional: set this if docker login state is not available on the rollout machine.
+# $env:AIOS_REGISTRY_DOCKERCONFIGJSON = Get-Content -Raw "$HOME\.docker\config.json"
+
+.\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets
+```
+
+The script sends generated Secret YAML to `kubectl apply -f -` through stdin. It does not write the secret payload to a repo file and does not use `--from-literal`.
+
+## Apply Without Managing Secrets
 
 ```powershell
 .\scripts\rc35-prod-deploy.ps1

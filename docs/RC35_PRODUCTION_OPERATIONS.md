@@ -11,18 +11,29 @@ The production sequence is gated. Do not tag `v1.1.0` until cluster deploy, Evid
 1. Install local tools: `kubectl`, `kustomize`, `aws`, `make`, and `aiosctl`.
 2. Configure `KUBECONFIG` with context `aios-prod`.
 3. Configure S3 access through IRSA/web identity or restricted credentials.
-4. Create `aios-registry-pull-secret` and `vault-creds` in namespace `aios-prod`.
+4. Create `aios-registry-pull-secret` and `vault-creds` in namespace `aios-prod`, either out-of-band or with `.\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets`.
 5. Run:
 
 ```powershell
 .\scripts\rc35-prod-preflight.ps1
 ```
 
-6. Deploy:
+6. Deploy. If the cluster secrets already exist:
 
 ```powershell
 .\scripts\rc35-prod-deploy.ps1
 ```
+
+If the rollout machine should create/update the cluster secrets first:
+
+```powershell
+$env:VAULT_BUCKET = "s3://aios-vault"
+# Optional when Docker login state is not already present.
+# $env:AIOS_REGISTRY_DOCKERCONFIGJSON = Get-Content -Raw "$HOME\.docker\config.json"
+.\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets
+```
+
+The script pipes generated Kubernetes Secret YAML to `kubectl apply -f -`. It does not persist the secret payload in the repository.
 
 7. Build and publish beta organs from a GPU machine:
 

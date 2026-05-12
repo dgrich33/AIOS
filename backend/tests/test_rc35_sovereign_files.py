@@ -55,3 +55,15 @@ def test_evidence_vault_writes_local_copy_and_ledger(tmp_path) -> None:
     assert Path(items[0].vault_uri).exists()
     assert record["missionId"] == "mission-1"
     assert "patch.diff" in (tmp_path / "ledger.jsonl").read_text(encoding="utf-8")
+
+
+def test_rc35_prod_scripts_manage_cluster_secret_readiness_without_literal_args() -> None:
+    preflight = (REPO_ROOT / "scripts" / "rc35-prod-preflight.ps1").read_text(encoding="utf-8")
+    deploy = (REPO_ROOT / "scripts" / "rc35-prod-deploy.ps1").read_text(encoding="utf-8")
+
+    assert "vault-creds" in preflight
+    assert "aios-registry-pull-secret" in preflight
+    assert "CreateClusterSecrets" in deploy
+    assert "AIOS_REGISTRY_DOCKERCONFIGJSON" in deploy
+    assert "kubectl apply -f -" in deploy
+    assert "--from-literal" not in deploy
