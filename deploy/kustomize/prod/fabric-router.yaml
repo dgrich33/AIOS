@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fabric-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: fabric-router
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: fabric-router
+    spec:
+      imagePullSecrets:
+        - name: aios-registry-pull-secret
+      containers:
+        - name: fabric-router
+          image: registry.aios.internal:5443/aios/fabric-router:v1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8026
+          env:
+            - name: AIOS_ENV
+              value: production
+            - name: VAULT_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: vault-creds
+                  key: VAULT_BUCKET
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: vault-creds
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-creds
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+          volumeMounts:
+            - name: router-config
+              mountPath: /etc/aios/router
+              readOnly: true
+            - name: sentinel-policy
+              mountPath: /etc/aios/sentinel
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /runtime/sovereign/status
+              port: 8026
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: router-config
+          configMap:
+            name: aios-router-config
+        - name: sentinel-policy
+          configMap:
+            name: aios-sentinel-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fabric-router
+spec:
+  selector:
+    app.kubernetes.io/component: fabric-router
+  ports:
+    - name: http
+      port: 8026
+      targetPort: 8026

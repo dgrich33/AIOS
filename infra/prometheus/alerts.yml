@@ -24,3 +24,27 @@ groups:
           severity: info
         annotations:
           summary: No AIOS Codex sessions created recently
+
+      - alert: AIOSMissionGpuBudgetHigh
+        expr: aios_gpu_seconds_mission > 1500
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: AIOS mission GPU budget is above 1500 seconds
+
+      - alert: AIOSRouterFallbackRateHigh
+        expr: sum(rate(aios_router_fallback_total[5m])) / clamp_min(sum(rate(aios_router_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: AIOS router fallback rate is above 5 percent
+
+      - alert: AIOSCodexPlanResourceExhausted
+        expr: increase(aios_codex_plan_resource_exhausted_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: Codex Plan Core returned RESOURCE_EXHAUSTED and fallback should be active

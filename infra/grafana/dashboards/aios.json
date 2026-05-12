@@ -1,0 +1,48 @@
+{
+  "title": "AIOS Codex OS RC35",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "GPU seconds per mission",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "max(aios_gpu_seconds_mission)" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Router fallback rate",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(aios_router_fallback_total[5m])) / clamp_min(sum(rate(aios_router_requests_total[5m])), 1)" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reality route decisions",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (organ, reality) (rate(aios_router_requests_total[5m]))" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Evidence uploads",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (status) (rate(aios_evidence_upload_total[5m]))" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Codex Plan Core resource exhausted",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum(rate(aios_codex_plan_resource_exhausted_total[5m]))" }
+      ]
+    }
+  ]
+}

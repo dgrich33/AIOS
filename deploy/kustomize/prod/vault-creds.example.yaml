@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-creds
+  namespace: aios-prod
+type: Opaque
+stringData:
+  VAULT_BUCKET: s3://aios-vault
+  AWS_ACCESS_KEY_ID: REPLACE_IN_CLUSTER_ONLY
+  AWS_SECRET_ACCESS_KEY: REPLACE_IN_CLUSTER_ONLY

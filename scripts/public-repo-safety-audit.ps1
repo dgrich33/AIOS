@@ -74,7 +74,7 @@ function Test-PlaceholderSecretValue {
   $clean = $Value.Trim().Trim("'", '"')
   if ([string]::IsNullOrWhiteSpace($clean)) { return $true }
   if ($clean.Length -lt 16) { return $true }
-  if ($clean -match "(?i)placeholder|replace|change-me|demo|example|test|local|dev|vindo-do|vault|kms|env:|process\.env|os\.getenv|protect-secret|unprotect-secret|\$|<|>") { return $true }
+  if ($clean -match "(?i)placeholder|replace|change-me|demo|example|test|local|dev|vindo-do|vault|kms|env:|env_or_os_keychain|process\.env|os\.getenv|protect-secret|unprotect-secret|opcional|valor-apenas|cole-o-token|\$|<|>") { return $true }
   if ($clean -in @("AiosAdmin123!", "aios_password", "aios-grafana-admin")) { return $true }
   return $false
 }

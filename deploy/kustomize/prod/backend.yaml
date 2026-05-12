@@ -12,6 +12,8 @@ spec:
       labels:
         app.kubernetes.io/component: backend
     spec:
+      imagePullSecrets:
+        - name: aios-registry-pull-secret
       containers:
         - name: backend
           image: registry.aios.internal:5443/aios/backend:v1.1.0
@@ -24,7 +26,10 @@ spec:
             - name: AIOS_RUNTIME_PROVIDER
               value: aios_native_runtime
             - name: VAULT_BUCKET
-              value: s3://aios-vault
+              valueFrom:
+                secretKeyRef:
+                  name: vault-creds
+                  key: VAULT_BUCKET
           readinessProbe:
             httpGet:
               path: /ready

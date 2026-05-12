@@ -5,8 +5,12 @@ resources:
   - namespace.yaml
   - backend.yaml
   - frontend.yaml
+  - edge-gateway.yaml
+  - fabric-router.yaml
+  - ui.yaml
   - router-config.yaml
   - sentinel-policy.yaml
+  - pilot-rbac.yaml
 commonLabels:
   app.kubernetes.io/name: aios-codex-os
   app.kubernetes.io/part-of: aios
