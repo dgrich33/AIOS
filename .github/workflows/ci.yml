@@ -9,8 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: bufbuild/buf-setup-action@v1
-      - run: cd aios-codex-specs && buf lint
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npx -y @bufbuild/buf lint aios-codex-specs
 
   bridge:
     runs-on: ubuntu-latest

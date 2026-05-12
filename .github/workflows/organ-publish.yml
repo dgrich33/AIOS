@@ -15,12 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: cd aios-codex-organ-bridge && cargo test
-      - run: cd aios-codex-specs && buf lint
+      - run: npx -y @bufbuild/buf lint aios-codex-specs
       - run: python aios-codex-foundry/foundry.py
       - name: Sign organ manifests
         run: |
