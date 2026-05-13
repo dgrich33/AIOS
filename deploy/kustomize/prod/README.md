@@ -51,6 +51,8 @@ $env:VAULT_BUCKET = "s3://aios-vault"
 
 The script sends generated Secret YAML to `kubectl apply -f -` through stdin. It does not write the secret payload to a repo file and does not use `--from-literal`.
 
+`-CreateClusterSecrets` is idempotent in normal Kubernetes operation because it uses `kubectl apply`; rerunning it updates the secret only when the generated manifest differs from the cluster object.
+
 ## Apply Without Managing Secrets
 
 ```powershell

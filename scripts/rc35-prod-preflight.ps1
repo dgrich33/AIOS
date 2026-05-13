@@ -26,6 +26,7 @@ function Add-Result {
 }
 
 $results = New-Object System.Collections.Generic.List[object]
+$requiredClusterSecrets = @("vault-creds", "aios-registry-pull-secret")
 
 foreach ($tool in @("git", "kubectl", "kustomize", "aws")) {
   $results.Add((Add-Result "tool:$tool" (Test-Tool $tool) ($(if (Test-Tool $tool) { "found" } else { "missing" }))))
@@ -82,7 +83,7 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
     $results.Add((Add-Result "cluster-namespace" $false "namespace $Namespace not reachable yet"))
   }
 
-  foreach ($secretName in @("vault-creds", "aios-registry-pull-secret")) {
+  foreach ($secretName in $requiredClusterSecrets) {
     try {
       $null = & kubectl -n $Namespace get secret $secretName 2>$null
       $results.Add((Add-Result "cluster-secret:$secretName" $true "present"))
@@ -95,10 +96,15 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
 }
 
 $failed = @($results | Where-Object { -not $_.ok })
+$missingSecrets = @($failed | Where-Object { $_.name -like "cluster-secret:*" })
 $results | Format-Table -AutoSize
 
 if ($failed.Count -gt 0) {
   Write-Host ""
+  if ($missingSecrets.Count -gt 0) {
+    Write-Host "MISSING SECRETS - run rc35-prod-deploy.ps1 -CreateClusterSecrets first." -ForegroundColor Yellow
+    exit 2
+  }
   Write-Host "RC35 prod preflight blocked. Corrija os itens acima antes de deploy/tag." -ForegroundColor Yellow
   exit 1
 }

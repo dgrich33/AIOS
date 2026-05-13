@@ -63,7 +63,21 @@ def test_rc35_prod_scripts_manage_cluster_secret_readiness_without_literal_args(
 
     assert "vault-creds" in preflight
     assert "aios-registry-pull-secret" in preflight
+    assert "MISSING SECRETS - run rc35-prod-deploy.ps1 -CreateClusterSecrets first." in preflight
+    assert "exit 2" in preflight
     assert "CreateClusterSecrets" in deploy
     assert "AIOS_REGISTRY_DOCKERCONFIGJSON" in deploy
     assert "kubectl apply -f -" in deploy
     assert "--from-literal" not in deploy
+
+
+def test_rc35_docs_put_first_install_deploy_before_preflight() -> None:
+    operations = (REPO_ROOT / "docs" / "RC35_PRODUCTION_OPERATIONS.md").read_text(encoding="utf-8")
+    overlay_readme = (REPO_ROOT / "deploy" / "kustomize" / "prod" / "README.md").read_text(encoding="utf-8")
+
+    first_install = operations.index("## First Install")
+    deploy_first = operations.index(".\\scripts\\rc35-prod-deploy.ps1 -CreateClusterSecrets", first_install)
+    preflight_after = operations.index(".\\scripts\\rc35-prod-preflight.ps1", deploy_first)
+    assert deploy_first < preflight_after
+    assert "For later deployments" in operations
+    assert "idempotent" in overlay_readme.lower()

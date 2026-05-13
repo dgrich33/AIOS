@@ -6,25 +6,15 @@ Move AIOS Codex OS v1.1 Sovereign + Codex Plan Bridge from merged code to intern
 
 The production sequence is gated. Do not tag `v1.1.0` until cluster deploy, Evidence Vault smoke, and mission smoke have all passed.
 
-## Sequence
+## First Install
+
+Use this sequence on the first rollout machine or any cluster where `vault-creds` and `aios-registry-pull-secret` do not exist yet.
 
 1. Install local tools: `kubectl`, `kustomize`, `aws`, `make`, and `aiosctl`.
 2. Configure `KUBECONFIG` with context `aios-prod`.
 3. Configure S3 access through IRSA/web identity or restricted credentials.
-4. Create `aios-registry-pull-secret` and `vault-creds` in namespace `aios-prod`, either out-of-band or with `.\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets`.
-5. Run:
-
-```powershell
-.\scripts\rc35-prod-preflight.ps1
-```
-
-6. Deploy. If the cluster secrets already exist:
-
-```powershell
-.\scripts\rc35-prod-deploy.ps1
-```
-
-If the rollout machine should create/update the cluster secrets first:
+4. Authenticate to `registry.aios.internal:5443` with Docker, or export `AIOS_REGISTRY_DOCKERCONFIGJSON`.
+5. Create/update cluster secrets and apply the production overlay:
 
 ```powershell
 $env:VAULT_BUCKET = "s3://aios-vault"
@@ -33,32 +23,57 @@ $env:VAULT_BUCKET = "s3://aios-vault"
 .\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets
 ```
 
-The script pipes generated Kubernetes Secret YAML to `kubectl apply -f -`. It does not persist the secret payload in the repository.
+The deploy script pipes generated Kubernetes Secret YAML to `kubectl apply -f -`. It does not persist the secret payload in the repository.
 
-7. Build and publish beta organs from a GPU machine:
+6. Confirm the environment is now all-green:
 
-```bash
-cd aios-codex-foundry
-make build-beta-organs
-aiosctl organ push out/*.organ
+```powershell
+.\scripts\rc35-prod-preflight.ps1
 ```
 
-8. Run Evidence Vault smoke:
+7. Run Evidence Vault smoke:
 
 ```powershell
 .\scripts\rc35-evidence-vault-smoke.ps1
 ```
 
-9. Run mission smoke:
+8. Run mission smoke:
 
 ```bash
 aiosctl mission new --repo https://github.com/openai/sample-auth --goal "Refatorar auth e corrigir rotas duplicadas"
 ```
 
-10. Tag release:
+9. Tag release:
 
 ```powershell
 .\scripts\rc35-release-tag.ps1 -IConfirmProdSmokePassed
+```
+
+## For later deployments
+
+After the required cluster secrets exist, start with preflight:
+
+```powershell
+.\scripts\rc35-prod-preflight.ps1
+.\scripts\rc35-prod-deploy.ps1
+.\scripts\rc35-evidence-vault-smoke.ps1
+.\scripts\rc35-release-tag.ps1 -IConfirmProdSmokePassed
+```
+
+If preflight reports `MISSING SECRETS`, rerun:
+
+```powershell
+.\scripts\rc35-prod-deploy.ps1 -CreateClusterSecrets
+```
+
+## Beta Organ Publication
+
+Build and publish beta organs from a GPU machine:
+
+```bash
+cd aios-codex-foundry
+make build-beta-organs
+aiosctl organ push out/*.organ
 ```
 
 ## Production Readiness Checks
