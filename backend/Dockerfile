@@ -1,4 +1,5 @@
 FROM python:3.11-slim
+LABEL org.opencontainers.image.base.name="k8s1.36"
 
 WORKDIR /app
 COPY requirements.txt .

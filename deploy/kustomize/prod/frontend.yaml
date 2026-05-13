@@ -16,7 +16,7 @@ spec:
         - name: aios-registry-pull-secret
       containers:
         - name: frontend
-          image: registry.aios.internal:5443/aios/frontend:v1.1.0
+          image: registry.aios.internal:5443/aios/frontend:1.1-k8s1.36
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5173

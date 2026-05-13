@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+env:
+  KUBECTL_VERSION: "v1.36.1"
+  KIND_NODE_IMAGE_REQUESTED: "kindest/node:v1.36.1"
+  KIND_NODE_IMAGE_FALLBACK: "kindest/node:v1.35.0"
+
 jobs:
   specs:
     runs-on: ubuntu-latest
@@ -87,9 +92,39 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose config
 
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+      - name: Verify kubectl client
+        run: kubectl version --client=true
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+      - name: Check requested kind node image
+        shell: bash
+        run: |
+          if docker manifest inspect "$KIND_NODE_IMAGE_REQUESTED" >/dev/null 2>&1; then
+            echo "KIND_NODE_IMAGE_EFFECTIVE=$KIND_NODE_IMAGE_REQUESTED" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=kindest/node image unavailable::$KIND_NODE_IMAGE_REQUESTED was not found on Docker Hub; using $KIND_NODE_IMAGE_FALLBACK for CI render smoke."
+            echo "KIND_NODE_IMAGE_EFFECTIVE=$KIND_NODE_IMAGE_FALLBACK" >> "$GITHUB_ENV"
+          fi
+      - name: Kind render smoke
+        run: |
+          kind create cluster --name aios-k8s-smoke --image "$KIND_NODE_IMAGE_EFFECTIVE"
+          kubectl cluster-info --context kind-aios-k8s-smoke
+          kubectl version -o json
+
   publish:
     if: startsWith(github.ref, 'refs/tags/organ/') || startsWith(github.ref, 'refs/tags/v')
-    needs: [specs, bridge, backend, frontend, mcp, compose]
+    needs: [specs, bridge, backend, frontend, mcp, compose, kubernetes]
     runs-on: ubuntu-latest
     env:
       AIOS_REGISTRY_USERNAME: ${{ secrets.AIOS_REGISTRY_USERNAME }}

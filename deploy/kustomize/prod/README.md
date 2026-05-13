@@ -13,12 +13,15 @@ It declares the production surface expected by the RC35 rollout:
 
 ## Prerequisites
 
+- Kubernetes cluster `>= 1.36.0`; rollout client uses `kubectl v1.36.1`.
 - Kubernetes context `aios-prod`.
 - Registry access to `registry.aios.internal:5443`.
 - Pull secret `aios-registry-pull-secret` created in namespace `aios-prod`.
 - Secret `vault-creds` created in namespace `aios-prod` with `VAULT_BUCKET=s3://aios-vault`.
 - AWS access via IRSA/web identity or restricted S3 credentials in `vault-creds`.
 - Sentinel policy reviewed and loaded from `sentinel-policy.yaml`.
+
+The overlay carries the compatibility marker `aios.dev/kubeVersion: ">= 1.36.0"` in `kustomization.yaml`. The hard enforcement happens in `rc35-prod-preflight.ps1` against the live client and server versions.
 
 Secret templates are examples only:
 
