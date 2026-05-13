@@ -89,8 +89,14 @@ $results.Add((Add-Result "aws-auth" $awsAuthOk "AWS key, profile, or IRSA/web-id
 if (Test-Tool "kustomize") {
   Push-Location (Split-Path $PSScriptRoot -Parent)
   try {
-    $null = & kustomize build deploy/kustomize/prod 2>$null
-    $results.Add((Add-Result "kustomize-build" $true "deploy/kustomize/prod renders"))
+    $cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
+    & $cmdExe /c "kustomize build deploy\kustomize\prod >nul 2>nul"
+    $buildExitCode = $LASTEXITCODE
+    if ($buildExitCode -eq 0) {
+      $results.Add((Add-Result "kustomize-build" $true "deploy/kustomize/prod renders"))
+    } else {
+      $results.Add((Add-Result "kustomize-build" $false "deploy/kustomize/prod failed to render"))
+    }
   } catch {
     $results.Add((Add-Result "kustomize-build" $false "deploy/kustomize/prod failed to render"))
   } finally {
@@ -101,6 +107,7 @@ if (Test-Tool "kustomize") {
 }
 
 if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
+  $namespaceReachable = $false
   try {
     $currentContext = (& kubectl config current-context 2>$null).Trim()
     $contextOk = $currentContext -eq $ExpectedContext
@@ -111,6 +118,7 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
 
   try {
     $null = & kubectl get namespace $Namespace 2>$null
+    $namespaceReachable = $true
     $results.Add((Add-Result "cluster-namespace" $true "namespace $Namespace reachable"))
   } catch {
     $results.Add((Add-Result "cluster-namespace" $false "namespace $Namespace not reachable yet"))
@@ -120,15 +128,17 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
     $serverVersion = Get-KubeServerVersion
     $results.Add((Add-Result "cluster-version" (Test-KubeGitVersion $serverVersion) "server $serverVersion; cluster needs Kubernetes 1.36.x or newer"))
   } catch {
-    $results.Add((Add-Result "cluster-version" $false "unable to determine server version; cluster needs Kubernetes 1.36.x or newer"))
+    $results.Add((Add-Result "cluster-version-reachable" $false "unable to determine server version; configure kubeconfig/context before checking server >= v1.36.0"))
   }
 
-  foreach ($secretName in $requiredClusterSecrets) {
-    try {
-      $null = & kubectl -n $Namespace get secret $secretName 2>$null
-      $results.Add((Add-Result "cluster-secret:$secretName" $true "present"))
-    } catch {
-      $results.Add((Add-Result "cluster-secret:$secretName" $false "missing; create with rc35-prod-deploy.ps1 -CreateClusterSecrets or apply the approved secret out-of-band"))
+  if ($namespaceReachable) {
+    foreach ($secretName in $requiredClusterSecrets) {
+      try {
+        $null = & kubectl -n $Namespace get secret $secretName 2>$null
+        $results.Add((Add-Result "cluster-secret:$secretName" $true "present"))
+      } catch {
+        $results.Add((Add-Result "cluster-secret:$secretName" $false "missing; create with rc35-prod-deploy.ps1 -CreateClusterSecrets or apply the approved secret out-of-band"))
+      }
     }
   }
 } elseif ($SkipClusterCheck) {

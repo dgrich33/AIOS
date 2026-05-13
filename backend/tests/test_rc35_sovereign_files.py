@@ -65,6 +65,11 @@ def test_rc35_prod_scripts_manage_cluster_secret_readiness_without_literal_args(
     assert "aios-registry-pull-secret" in preflight
     assert "MISSING SECRETS - run rc35-prod-deploy.ps1 -CreateClusterSecrets first." in preflight
     assert "exit 2" in preflight
+    assert "buildExitCode" in preflight
+    assert "cluster-version-reachable" in preflight
+    assert "namespaceReachable" in preflight
+    assert "System32\\cmd.exe" in preflight
+    assert '/c "kustomize build' in preflight
     assert "CreateClusterSecrets" in deploy
     assert "AIOS_REGISTRY_DOCKERCONFIGJSON" in deploy
     assert "kubectl apply -f -" in deploy

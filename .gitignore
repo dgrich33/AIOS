@@ -73,3 +73,6 @@ checkpoints/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local operator tools
+.tools/
