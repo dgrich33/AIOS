@@ -81,3 +81,24 @@ def test_rc35_docs_put_first_install_deploy_before_preflight() -> None:
     assert deploy_first < preflight_after
     assert "For later deployments" in operations
     assert "idempotent" in overlay_readme.lower()
+
+
+def test_kubernetes_136_upgrade_markers_are_consistent() -> None:
+    preflight = (REPO_ROOT / "scripts" / "rc35-prod-preflight.ps1").read_text(encoding="utf-8")
+    kustomization = (REPO_ROOT / "deploy" / "kustomize" / "prod" / "kustomization.yaml").read_text(encoding="utf-8")
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    organ_publish = (REPO_ROOT / ".github" / "workflows" / "organ-publish.yml").read_text(encoding="utf-8")
+    backend_dockerfile = (REPO_ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    frontend_dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "$minKubectlMinor = 36" in preflight
+    assert "cluster needs Kubernetes 1.36.x or newer" in preflight
+    assert "aios.dev/kubeVersion: \">= 1.36.0\"" in kustomization
+    assert "registry.aios.internal:5443/aios/edge-gateway:1.1-k8s1.36" in (REPO_ROOT / "deploy" / "kustomize" / "prod" / "edge-gateway.yaml").read_text(encoding="utf-8")
+    assert "registry.aios.internal:5443/aios/fabric-router:1.1-k8s1.36" in (REPO_ROOT / "deploy" / "kustomize" / "prod" / "fabric-router.yaml").read_text(encoding="utf-8")
+    assert "registry.aios.internal:5443/aios/ui:1.1-k8s1.36" in (REPO_ROOT / "deploy" / "kustomize" / "prod" / "ui.yaml").read_text(encoding="utf-8")
+    assert 'KUBECTL_VERSION: "v1.36.1"' in ci
+    assert 'KUBECTL_VERSION: "v1.36.1"' in organ_publish
+    assert 'KIND_NODE_IMAGE_REQUESTED: "kindest/node:v1.36.1"' in ci
+    assert 'org.opencontainers.image.base.name="k8s1.36"' in backend_dockerfile
+    assert 'org.opencontainers.image.base.name="k8s1.36"' in frontend_dockerfile

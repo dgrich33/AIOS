@@ -7,6 +7,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$minKubectlMajor = 1
+$minKubectlMinor = 36
+
 function Test-Tool {
   param([Parameter(Mandatory=$true)][string]$Name)
   $cmd = Get-Command $Name -ErrorAction SilentlyContinue
@@ -25,6 +28,27 @@ function Add-Result {
   [pscustomobject]@{ name = $Name; ok = $Ok; detail = $Detail }
 }
 
+function Test-KubeGitVersion {
+  param([Parameter(Mandatory=$true)][string]$GitVersion)
+  $match = [regex]::Match($GitVersion, "^v(?<maj>\d+)\.(?<min>\d+)")
+  if (-not $match.Success) {
+    return $false
+  }
+  $maj = [int]$match.Groups["maj"].Value
+  $min = [int]$match.Groups["min"].Value
+  return ($maj -gt $minKubectlMajor) -or ($maj -eq $minKubectlMajor -and $min -ge $minKubectlMinor)
+}
+
+function Get-KubeClientVersion {
+  $json = (& kubectl version --client -o json | ConvertFrom-Json)
+  return [string]$json.clientVersion.gitVersion
+}
+
+function Get-KubeServerVersion {
+  $json = (& kubectl version -o json | ConvertFrom-Json)
+  return [string]$json.serverVersion.gitVersion
+}
+
 $results = New-Object System.Collections.Generic.List[object]
 $requiredClusterSecrets = @("vault-creds", "aios-registry-pull-secret")
 
@@ -36,6 +60,15 @@ $makePresent = Test-Tool "make"
 $aiosctlPresent = Test-Tool "aiosctl"
 $results.Add((Add-Result "optional:make" $makePresent ($(if ($makePresent) { "found" } else { "missing; beta organ training command will not run here" }))))
 $results.Add((Add-Result "optional:aiosctl" $aiosctlPresent ($(if ($aiosctlPresent) { "found" } else { "missing; organ push and mission smoke need this tool" }))))
+
+if (Test-Tool "kubectl") {
+  try {
+    $clientVersion = Get-KubeClientVersion
+    $results.Add((Add-Result "kubectl-client-version" (Test-KubeGitVersion $clientVersion) "client $clientVersion; requires >= v1.36.0"))
+  } catch {
+    $results.Add((Add-Result "kubectl-client-version" $false "unable to determine kubectl client version"))
+  }
+}
 
 $kubeConfig = $env:KUBECONFIG
 if ([string]::IsNullOrWhiteSpace($kubeConfig)) {
@@ -83,6 +116,13 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
     $results.Add((Add-Result "cluster-namespace" $false "namespace $Namespace not reachable yet"))
   }
 
+  try {
+    $serverVersion = Get-KubeServerVersion
+    $results.Add((Add-Result "cluster-version" (Test-KubeGitVersion $serverVersion) "server $serverVersion; cluster needs Kubernetes 1.36.x or newer"))
+  } catch {
+    $results.Add((Add-Result "cluster-version" $false "unable to determine server version; cluster needs Kubernetes 1.36.x or newer"))
+  }
+
   foreach ($secretName in $requiredClusterSecrets) {
     try {
       $null = & kubectl -n $Namespace get secret $secretName 2>$null
@@ -97,10 +137,15 @@ if (-not $SkipClusterCheck -and (Test-Tool "kubectl")) {
 
 $failed = @($results | Where-Object { -not $_.ok })
 $missingSecrets = @($failed | Where-Object { $_.name -like "cluster-secret:*" })
+$versionFailures = @($failed | Where-Object { $_.name -in @("kubectl-client-version", "cluster-version") })
 $results | Format-Table -AutoSize
 
 if ($failed.Count -gt 0) {
   Write-Host ""
+  if ($versionFailures.Count -gt 0) {
+    Write-Host "KUBERNETES VERSION BLOCKED - cluster needs Kubernetes 1.36.x or newer." -ForegroundColor Yellow
+    exit 3
+  }
   if ($missingSecrets.Count -gt 0) {
     Write-Host "MISSING SECRETS - run rc35-prod-deploy.ps1 -CreateClusterSecrets first." -ForegroundColor Yellow
     exit 2

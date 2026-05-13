@@ -16,7 +16,7 @@ spec:
         - name: aios-registry-pull-secret
       containers:
         - name: fabric-router
-          image: registry.aios.internal:5443/aios/fabric-router:v1.1.0
+          image: registry.aios.internal:5443/aios/fabric-router:1.1-k8s1.36
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8026

@@ -16,7 +16,7 @@ spec:
         - name: aios-registry-pull-secret
       containers:
         - name: edge-gateway
-          image: registry.aios.internal:5443/aios/edge-gateway:v1.1.0
+          image: registry.aios.internal:5443/aios/edge-gateway:1.1-k8s1.36
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8026

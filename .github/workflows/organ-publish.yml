@@ -6,6 +6,10 @@ on:
       - "organ/*"
       - "v*"
 
+env:
+  KUBECTL_VERSION: "v1.36.1"
+  KIND_NODE_IMAGE_REQUESTED: "kindest/node:v1.36.1"
+
 jobs:
   organ-publish:
     runs-on: ubuntu-latest
@@ -14,6 +18,9 @@ jobs:
       AIOS_REGISTRY_PASSWORD: ${{ secrets.AIOS_REGISTRY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
@@ -22,6 +29,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: cd aios-codex-organ-bridge && cargo test
+      - run: kubectl version --client=true
       - run: npx -y @bufbuild/buf lint aios-codex-specs
       - run: python aios-codex-foundry/foundry.py
       - name: Sign organ manifests
